@@ -7,20 +7,10 @@ use App\Http\Controllers\{
     DashboardController,
     SubHeadOfAccController,
     COAController,
-    SaleInvoiceController,
-    PurchaseInvoiceController,
-    PurchaseReturnController,
-    ProductController,
     UserController,
     RoleController,
-    AttributeController,
-    ProductCategoryController,
     VoucherController,
-    InventoryReportController,
-    PurchaseReportController,
-    SalesReportController,
     AccountsReportController,
-    SaleReturnController,
     PermissionController,
     ProductSubcategoryController,
     SupplierController,
@@ -33,13 +23,16 @@ use App\Http\Controllers\{
     VisaTypeController,
     ChargeTypeController,
     ChargeTemplateController,
-    StockTransferController,
     PackageController,
     QuotationController,
-    TicketInvoiceController,
     TourInvoiceController,
+    AirlineController,
+    TicketSaleInvoiceController,
     VendorComplaintController,
     InvoicePaymentController,
+    TravelVendorReportController,
+    TravelSalesReportController,
+    TravelAccountsReportController,
 };
 
 Auth::routes();
@@ -51,14 +44,6 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/users/{id}/change-password', [UserController::class, 'changePassword'])->name('users.changePassword');
     Route::put('/users/{id}/toggle-active', [UserController::class, 'toggleActive'])->name('users.toggleActive');
     Route::post('/change-my-password', [UserController::class, 'changeMyPassword'])->name('users.changeMyPassword');
-    
-    // Product Helpers
-    Route::get('/products/details', [ProductController::class, 'details'])->name('products.receiving');
-    Route::get('/product/{product}/variations', [ProductController::class, 'getVariations'])->name('product.variations');
-    Route::get('/get-subcategories/{category_id}', [ProductCategoryController::class, 'getSubcategories'])->name('products.getSubcategories');
-
-    //Purchase Helper
-    Route::get('/product/{product}/invoices', [PurchaseInvoiceController::class, 'getProductInvoices']);
 
     // Common Modules
     $modules = [
@@ -70,20 +55,6 @@ Route::middleware(['auth'])->group(function () {
         // Accounts
         'coa' => ['controller' => COAController::class, 'permission' => 'coa'],
         'shoa' => ['controller' => SubHeadOfAccController::class, 'permission' => 'shoa'],
-
-        // Products
-        'products' => ['controller' => ProductController::class, 'permission' => 'products'],
-        'product_categories' => ['controller' => ProductCategoryController::class, 'permission' => 'product_categories'],
-        'product_subcategories' => ['controller' => ProductSubcategoryController::class, 'permission' => 'product_subcategories'],
-        'attributes' => ['controller' => AttributeController::class, 'permission' => 'attributes'],
-
-        // Purchases
-        'purchase_invoices' => ['controller' => PurchaseInvoiceController::class, 'permission' => 'purchase_invoices'],
-        'purchase_return' => ['controller' => PurchaseReturnController::class, 'permission' => 'purchase_return'],
-
-        // Sales
-        'sale_invoices' => ['controller' => SaleInvoiceController::class, 'permission' => 'sale_invoices'],
-        'sale_return' => ['controller' => SaleReturnController::class, 'permission' => 'sale_return'],
 
         // Vouchers
         'vouchers' => ['controller' => VoucherController::class, 'permission' => 'vouchers'],
@@ -99,15 +70,18 @@ Route::middleware(['auth'])->group(function () {
         'visa_types' => ['controller' => VisaTypeController::class, 'permission' => 'visa_types'],
         'charge_types' => ['controller' => ChargeTypeController::class, 'permission' => 'charge_types'],
         'charge_templates' => ['controller' => ChargeTemplateController::class, 'permission' => 'charge_templates'],
+        'airlines' => ['controller' => AirlineController::class, 'permission' => 'airlines'],
 
         // Travel Agency — Phase 2: packages & quotation
         'packages' => ['controller' => PackageController::class, 'permission' => 'packages'],
         'quotations' => ['controller' => QuotationController::class, 'permission' => 'quotations'],
 
-        // Sale Invoice (tickets only) / Tour Invoice (all services) — see
-        // BaseTravelInvoiceController for why these aren't named
-        // sale_invoices (already used by the base app's inventory module).
-        'ticket_invoices' => ['controller' => TicketInvoiceController::class, 'permission' => 'ticket_invoices'],
+        // Tour Invoice (all services) — see BaseTravelInvoiceController for
+        // why this isn't named sale_invoices (already used by the base
+        // app's inventory module). Ticket Sale Invoice ("Sale Invoice
+        // (Tickets)" in the sidebar) has its own bespoke route group below
+        // instead of this generic CRUD loop — it needs post/unpost/refund/
+        // void actions the loop doesn't support.
         'tour_invoices' => ['controller' => TourInvoiceController::class, 'permission' => 'tour_invoices'],
 
         // Travel Agency — Phase 4: vendor complaint log / auto-flagging
@@ -156,24 +130,44 @@ Route::middleware(['auth'])->group(function () {
 
     // Reports (readonly)
     Route::prefix('reports')->name('reports.')->group(function () {
-        Route::get('inventory', [InventoryReportController::class, 'inventoryReports'])->name('inventory');
-        Route::get('purchase', [PurchaseReportController::class, 'purchaseReports'])->name('purchase');
-        Route::get('sale', [SalesReportController::class, 'saleReports'])->name('sale');
         Route::get('accounts', [AccountsReportController::class, 'accounts'])->name('accounts');
+
+        // Travel Agency — Phase 6: Vendor / Sales / Accounting report suites
+        Route::get('travel-vendor', [TravelVendorReportController::class, 'index'])
+            ->middleware('check.permission:reports.travel_vendor')->name('travel_vendor');
+        Route::get('travel-sales', [TravelSalesReportController::class, 'index'])
+            ->middleware('check.permission:reports.travel_sales')->name('travel_sales');
+        Route::get('travel-accounts', [TravelAccountsReportController::class, 'index'])
+            ->middleware('check.permission:reports.travel_accounts')->name('travel_accounts');
     });
 
     Route::patch('/quotations/{id}/status', [QuotationController::class, 'updateStatus'])
         ->middleware('check.permission:quotations.edit')
         ->name('quotations.status');
 
-    Route::patch('/ticket_invoices/{id}/status', [TicketInvoiceController::class, 'updateStatus'])
-        ->middleware('check.permission:ticket_invoices.edit')
-        ->name('ticket_invoices.status');
+    // Ticket Sale Invoice — bespoke route group (client feedback rebuild):
+    // pending/posted workflow plus per-ticket refund/void, none of which
+    // fit the generic CRUD loop above.
+    Route::prefix('ticket_invoices')->name('ticket_invoices.')->group(function () {
+        Route::get('/', [TicketSaleInvoiceController::class, 'index'])->middleware('check.permission:ticket_invoices.index')->name('index');
+        Route::get('/create', [TicketSaleInvoiceController::class, 'create'])->middleware('check.permission:ticket_invoices.create')->name('create');
+        Route::post('/', [TicketSaleInvoiceController::class, 'store'])->middleware('check.permission:ticket_invoices.create')->name('store');
+        Route::get('/{id}', [TicketSaleInvoiceController::class, 'show'])->middleware('check.permission:ticket_invoices.index')->name('show');
+        Route::get('/{id}/edit', [TicketSaleInvoiceController::class, 'edit'])->middleware('check.permission:ticket_invoices.edit')->name('edit');
+        Route::put('/{id}', [TicketSaleInvoiceController::class, 'update'])->middleware('check.permission:ticket_invoices.edit')->name('update');
+        Route::delete('/{id}', [TicketSaleInvoiceController::class, 'destroy'])->middleware('check.permission:ticket_invoices.delete')->name('destroy');
+        Route::get('/{id}/print', [TicketSaleInvoiceController::class, 'printCustomer'])->middleware('check.permission:ticket_invoices.print')->name('print');
+        Route::get('/{id}/print-detailed', [TicketSaleInvoiceController::class, 'printDetailed'])->middleware('check.permission:ticket_invoices.print')->name('print_detailed');
+        Route::patch('/{id}/post', [TicketSaleInvoiceController::class, 'post'])->middleware('check.permission:ticket_invoices.edit')->name('post');
+        Route::patch('/{id}/unpost', [TicketSaleInvoiceController::class, 'unpost'])->middleware('check.permission:ticket_invoices.edit')->name('unpost');
+        Route::post('/{invoice}/lines/{line}/refund', [TicketSaleInvoiceController::class, 'refundLine'])->middleware('check.permission:ticket_invoices.edit')->name('lines.refund');
+        Route::post('/{invoice}/lines/{line}/void', [TicketSaleInvoiceController::class, 'voidLine'])->middleware('check.permission:ticket_invoices.edit')->name('lines.void');
+    });
+
+    // Self-scoped — always shows only the logged-in agent's own commission, so no permission gate.
+    Route::get('/my-commission', [TicketSaleInvoiceController::class, 'myCommission'])->name('ticket_invoices.my_commission');
 
     Route::patch('/tour_invoices/{id}/status', [TourInvoiceController::class, 'updateStatus'])
         ->middleware('check.permission:tour_invoices.edit')
         ->name('tour_invoices.status');
-
-    Route::get('/get-location-stock', [ProductController::class, 'getLocationStock']);
-    Route::get('/stock-lots/available', [StockTransferController::class, 'getAvailableLots'])->name('stock.lots.available');    
 });

@@ -10,12 +10,6 @@ use App\Models\SubHeadOfAccounts;
 use App\Models\ChartOfAccounts;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
-use App\Models\MeasurementUnit;
-use App\Models\ProductCategory;
-use App\Models\Attribute;
-use App\Models\AttributeValue;
-use App\Models\ProductSubcategory;
-use App\Models\Product;
 use Illuminate\Support\Str;
 
 class DatabaseSeeder extends Seeder
@@ -64,20 +58,6 @@ class DatabaseSeeder extends Seeder
             'coa',
             'shoa',
 
-            // Products
-            'products',
-            'product_categories',
-            'product_subcategories',
-            'attributes',
-
-            // Purchases
-            'purchase_invoices',
-            'purchase_return',
-
-            // Sales
-            'sale_invoices',
-            'sale_return',
-
             // Vouchers
             'vouchers',
 
@@ -92,6 +72,7 @@ class DatabaseSeeder extends Seeder
             'visa_types',
             'charge_types',
             'charge_templates',
+            'airlines',
             'packages',
             'quotations',
 
@@ -117,7 +98,7 @@ class DatabaseSeeder extends Seeder
         }
 
         // 📊 Report permissions
-        $reports = ['inventory', 'purchase', 'sales', 'accounts'];
+        $reports = ['accounts', 'travel_vendor', 'travel_sales', 'travel_accounts'];
 
         foreach ($reports as $report) {
             Permission::firstOrCreate([
@@ -226,15 +207,6 @@ class DatabaseSeeder extends Seeder
                 'updated_at'   => $now,
             ]));
         }
-
-        // 📏 Measurement Units
-        MeasurementUnit::insert([
-            ['id' => 1, 'name' => 'Kilogram', 'shortcode' => 'kg'],
-            ['id' => 2, 'name' => 'Meter',    'shortcode' => 'm'],
-            ['id' => 3, 'name' => 'Pieces',   'shortcode' => 'pcs'],
-            ['id' => 4, 'name' => 'Bag',      'shortcode' => 'bag'],
-            ['id' => 5, 'name' => 'Bundle',   'shortcode' => 'bundle'],
-        ]);
 
         // ─────────────────────────────────────────
         // TRAVEL AGENCY — starter masters (Phase 1)
