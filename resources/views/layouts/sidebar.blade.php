@@ -67,7 +67,7 @@
               <li><a class="nav-link" href="{{ route('customers.index') }}">Customers</a></li>
               @endcan
               @can('vendor_complaints.index')
-              <li><a class="nav-link" href="{{ route('vendor_complaints.index') }}">Vendor Complaints</a></li>
+              <li><a class="nav-link" href="{{ route('vendor_complaints.index') }}">Complaints</a></li>
               @endcan
             </ul>
           </li>
@@ -76,7 +76,7 @@
           {{-- Travel Agency: Masters --}}
           @if(auth()->user()->can('services.index') || auth()->user()->can('hotels.index') || auth()->user()->can('vehicles.index') || auth()->user()->can('visa_types.index') || auth()->user()->can('charge_templates.index'))
           <li class="nav-parent">
-            <a class="nav-link" href="#"><i class="fa fa-suitcase-rolling"></i> <span>Travel Masters</span></a>
+            <a class="nav-link" href="#"><i class="fa fa-suitcase-rolling"></i> <span>Master</span></a>
             <ul class="nav nav-children">
               @can('services.index')
               <li><a class="nav-link" href="{{ route('services.index') }}">Services</a></li>
@@ -109,7 +109,7 @@
           {{-- Travel Agency: Packages & Quotation --}}
           @if(auth()->user()->can('packages.index') || auth()->user()->can('quotations.index'))
           <li class="nav-parent">
-            <a class="nav-link" href="#"><i class="fa fa-route"></i> <span>Packages &amp; Quotation</span></a>
+            <a class="nav-link" href="#"><i class="fa fa-route"></i> <span>Daily Operations</span></a>
             <ul class="nav nav-children">
               @can('packages.index')
               <li><a class="nav-link" href="{{ route('packages.index') }}">Packages</a></li>
@@ -122,79 +122,6 @@
               @endcan
               @can('tour_invoices.index')
               <li><a class="nav-link" href="{{ route('tour_invoices.index') }}">Tour Invoice</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- Products --}}
-          @if(auth()->user()->can('product-categories.index') || auth()->user()->can('attributes.index') || auth()->user()->can('products.index'))
-            <li class="nav-parent">
-                <a class="nav-link" href="#"><i class="fa fa-layer-group"></i> <span>Products</span></a>
-                <ul class="nav nav-children">
-                    @can('product_categories.index')
-                        <li><a class="nav-link" href="{{ route('product_categories.index') }}">Categories</a></li>
-                    @endcan
-                    @can('product_subcategories.index')
-                        <li><a class="nav-link" href="{{ route('product_subcategories.index') }}">Sub Categories</a></li>
-                    @endcan
-                    @can('attributes.index')
-                        <li><a class="nav-link" href="{{ route('attributes.index') }}">Attributes</a></li>
-                    @endcan
-                    @can('products.index')
-                        <li><a class="nav-link" href="{{ route('products.index') }}">All Products</a></li>
-                    @endcan
-                </ul>
-            </li>
-          @endif
-
-          {{-- Stock Management --}}
-          @if(auth()->user()->can('locations.index') || auth()->user()->can('stock_transfer.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#"><i class="fa fa-cubes"></i> <span>Stock Management</span></a>
-            <ul class="nav nav-children">
-              @can('locations.index')
-                <li><a class="nav-link" href="{{ route('locations.index') }}">Locations</a></li>
-              @endcan
-              @can('stock_transfer.index')
-                <li><a class="nav-link" href="{{ route('stock_transfer.index') }}">Stock In/Out</a></li>
-              @endcan
-            </ul>
-          </li>
-          @endif
-
-          {{-- Purchase Invoices --}}
-          @if(auth()->user()->can('purchase_invoices.index') || auth()->user()->can('purchase_invoices_1.index') || auth()->user()->can('purchase_return.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#"><i class="fa fa-shopping-cart"></i> <span>Purchase</span></a>
-            <ul class="nav nav-children">
-              @can('purchase_orders.index')
-                <li><a class="nav-link" href="{{ route('purchase_orders.index') }}">Orders</a></li>
-              @endcan
-              @can('purchase_invoices.index')
-              <li><a class="nav-link" href="{{ route('purchase_invoices.index') }}">Invoices</a></li>
-              @endcan
-              @can('purchase_return.index')
-              <li><a class="nav-link" href="{{ route('purchase_return.index') }}">Returns</a></li>
-              @endcan
-
-            </ul>
-          </li>
-          @endif
-
-          {{-- Sale Invoices --}}
-          @if(auth()->user()->can('sale_invoices.index') || auth()->user()->can('sale_return.index'))
-          <li class="nav-parent">
-            <a class="nav-link" href="#"><i class="fa fa-cash-register"></i> <span>Sale</span></a>
-            <ul class="nav nav-children">
-              @can('sale_orders.index')
-              <li><a class="nav-link" href="{{ route('sale_orders.index') }}">Order</a></li>
-              @endcan
-              @can('sale_invoices.index')
-              <li><a class="nav-link" href="{{ route('sale_invoices.index') }}">Invoices</a></li>
-              @endcan
-              @can('sale_return.index')
-              <li><a class="nav-link" href="{{ route('sale_return.index') }}">Return</a></li>
               @endcan
             </ul>
           </li>
@@ -226,9 +153,6 @@
 
           {{-- Reports --}}
           @if(
-            auth()->user()->can('reports.inventory') || 
-            auth()->user()->can('reports.purchase') || 
-            auth()->user()->can('reports.sales') ||
             auth()->user()->can('reports.accounts') ||
             auth()->user()->can('reports.travel_vendor') ||
             auth()->user()->can('reports.travel_sales') ||
@@ -240,15 +164,6 @@
               <span>Reports</span>
             </a>
             <ul class="nav nav-children">
-              @can('reports.inventory')
-                <li><a class="nav-link" href="{{ route('reports.inventory') }}">Inventory</a></li>
-              @endcan
-              @can('reports.purchase')
-                <li><a class="nav-link" href="{{ route('reports.purchase') }}">Purchase</a></li>
-              @endcan
-              @can('reports.sales')
-                <li><a class="nav-link" href="{{ route('reports.sale') }}">Sales</a></li>
-              @endcan
               @can('reports.accounts')
                 <li><a class="nav-link" href="{{ route('reports.accounts') }}">Accounts</a></li>
               @endcan
