@@ -74,7 +74,7 @@
           @endif
 
           {{-- Travel Agency: Masters --}}
-          @if(auth()->user()->can('services.index') || auth()->user()->can('hotels.index') || auth()->user()->can('vehicles.index') || auth()->user()->can('visa_types.index') || auth()->user()->can('charge_templates.index'))
+          @if(auth()->user()->can('services.index') || auth()->user()->can('hotels.index') || auth()->user()->can('vehicles.index') || auth()->user()->can('visa_types.index') || auth()->user()->can('charge_templates.index') || auth()->user()->can('airlines.index'))
           <li class="nav-parent">
             <a class="nav-link" href="#"><i class="fa fa-suitcase-rolling"></i> <span>Master</span></a>
             <ul class="nav nav-children">
@@ -102,6 +102,9 @@
               @can('charge_templates.index')
               <li><a class="nav-link" href="{{ route('charge_templates.index') }}">Charge Templates</a></li>
               @endcan
+              @can('airlines.index')
+              <li><a class="nav-link" href="{{ route('airlines.index') }}">Airlines</a></li>
+              @endcan
             </ul>
           </li>
           @endif
@@ -120,13 +123,14 @@
               @can('ticket_invoices.index')
               <li><a class="nav-link" href="{{ route('ticket_invoices.index') }}">Sale Invoice (Tickets)</a></li>
               @endcan
+              <li><a class="nav-link" href="{{ route('ticket_invoices.my_commission') }}">My Commission</a></li>
               @can('tour_invoices.index')
               <li><a class="nav-link" href="{{ route('tour_invoices.index') }}">Tour Invoice</a></li>
               @endcan
             </ul>
           </li>
           @endif
-          
+
           {{-- Vouchers --}}
           @if(auth()->user()->can('vouchers.index'))
             <li class="nav-parent">
