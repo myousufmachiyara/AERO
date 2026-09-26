@@ -25,7 +25,7 @@
                     <thead>
                         <tr>
                             <th>Passenger</th><th>Type</th><th>PNR</th><th>Ticket #</th><th>Airline</th><th>Supplier</th><th>Cities</th>
-                            <th>Fare</th><th>Tax</th><th>APT %</th><th>APT</th><th>Comm %</th><th>Comm Amt</th><th>WHT %</th><th>WHT</th><th>PSF %</th><th>PSF</th><th>Discount</th>
+                            <th>Fare</th><th>Tax</th><th>APT %</th><th>APT</th><th>Comm %</th><th>Comm Amt</th><th>WHT %</th><th>WHT</th><th>PSF %</th><th>PSF</th><th>Discount %</th><th>Discount</th>
                             <th>Agent</th><th>Agent Comm %</th><th>Agent Comm</th><th>Status</th><th>Amount</th>
                         </tr>
                     </thead>
@@ -47,8 +47,9 @@
                             <td>{{ number_format($line->commission_amount, 2) }}</td>
                             <td>{{ number_format($line->wht_percent, 2) }}%</td>
                             <td>{{ number_format($line->wht_amount, 2) }}</td>
-                            <td>{{ number_format($line->psf_percent, 2) }}% <small class="text-muted">({{ $line->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }})</small></td>
+                            <td>{{ number_format($line->psf_percent, 2) }}% <small class="text-muted">({{ $line->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }}{{ $line->psf_input_mode === 'amount' ? ', amt' : '' }})</small></td>
                             <td>{{ number_format($line->psf_amount, 2) }}</td>
+                            <td>{{ number_format($line->discount_percent, 2) }}%{{ $line->discount_input_mode === 'amount' ? ' (amt)' : '' }}</td>
                             <td>{{ number_format($line->discount_amount, 2) }}</td>
                             <td>{{ $line->salesAgent->name ?? '—' }}</td>
                             <td>{{ number_format($line->agent_commission_percent, 2) }}%</td>
@@ -57,13 +58,13 @@
                             <td>{{ number_format($line->effectiveReceivable(), 2) }}</td>
                         </tr>
                         @if($line->status === 'refunded')
-                        <tr class="table-light"><td colspan="23" class="text-muted">
+                        <tr class="table-light"><td colspan="24" class="text-muted">
                             Refunded {{ optional($line->refund_date)->format('d/m/Y') }} (adj. {{ optional($line->refund_adjustment_date)->format('d/m/Y') }}) —
                             refund fare {{ number_format($line->refund_fare_amount, 2) }}, refund tax {{ number_format($line->refund_tax_amount, 2) }},
                             refund charges {{ number_format($line->refund_charges, 2) }}, returned {{ number_format($line->refund_amount, 2) }}, retained profit {{ number_format($line->refund_profit, 2) }}
                         </td></tr>
                         @elseif($line->status === 'voided')
-                        <tr class="table-light"><td colspan="23" class="text-muted">
+                        <tr class="table-light"><td colspan="24" class="text-muted">
                             Voided {{ optional($line->void_date)->format('d/m/Y') }} —
                             supplier deduction {{ number_format($line->void_deduction_supplier, 2) }},
                             {{ config('travel.company_name') }} deduction {{ number_format($line->void_deduction_company, 2) }},
@@ -85,6 +86,7 @@
                             <td>{{ number_format($invoice->total_wht, 2) }}</td>
                             <td></td>
                             <td>{{ number_format($invoice->total_psf, 2) }}</td>
+                            <td></td>
                             <td>{{ number_format($invoice->total_discount, 2) }}</td>
                             <td colspan="3"></td>
                             <td></td>

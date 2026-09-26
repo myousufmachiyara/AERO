@@ -71,7 +71,10 @@
             'leg2_from' => $l->leg2_from, 'leg2_stay' => $l->leg2_stay, 'leg2_to' => $l->leg2_to,
             'fare_amount' => $l->fare_amount, 'tax_amount' => $l->tax_amount, 'apt_percent' => $l->apt_percent,
             'commission_percent' => $l->commission_percent, 'wht_percent' => $l->wht_percent,
-            'psf_percent' => $l->psf_percent, 'psf_basis' => $l->psf_basis, 'discount_amount' => $l->discount_amount,
+            'psf_percent' => $l->psf_percent, 'psf_amount' => $l->psf_amount, 'psf_basis' => $l->psf_basis,
+            'psf_input_mode' => $l->psf_input_mode,
+            'discount_percent' => $l->discount_percent, 'discount_amount' => $l->discount_amount,
+            'discount_input_mode' => $l->discount_input_mode,
             'sales_agent_id' => $l->sales_agent_id, 'agent_commission_percent' => $l->agent_commission_percent,
         ];
     })->values();
@@ -174,23 +177,35 @@
                     <input type="number" step="0.01" min="0" max="100" class="form-control f-wht-pct" value="0">
                     <small class="text-muted">= <span class="f-wht-amt">0.00</span></small>
                 </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">PSF %</label>
-                    <input type="number" step="0.01" min="0" max="100" class="form-control f-psf-pct" value="0">
-                    <small class="text-muted">= <span class="f-psf-amt">0.00</span></small>
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">PSF Based On</label>
-                    <select class="form-control f-psf-basis">
-                        <option value="fare">Fare Amount</option>
-                        <option value="total">Fare + Tax + APT</option>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label d-flex justify-content-between align-items-center mb-1">
+                        <span>PSF</span>
+                        <select class="form-control form-control-sm f-psf-mode" style="width:auto;padding:0 4px;">
+                            <option value="percent">Enter %</option>
+                            <option value="amount">Enter Amount</option>
+                        </select>
+                    </label>
+                    <input type="number" step="0.01" min="0" max="100" class="form-control f-psf-pct" placeholder="PSF %" value="0">
+                    <input type="number" step="0.01" min="0" class="form-control f-psf-amt-input mt-1" placeholder="PSF Amount" value="0" style="display:none;">
+                    <select class="form-control form-control-sm mt-1 f-psf-basis">
+                        <option value="fare">Based on Fare Amount</option>
+                        <option value="total">Based on Fare + Tax + APT</option>
                     </select>
+                    <small class="text-muted">= <span class="f-psf-computed">0.00</span></small>
                 </div>
             </div>
             <div class="row">
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Discount</label>
-                    <input type="number" step="0.01" min="0" class="form-control f-discount" value="0">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label d-flex justify-content-between align-items-center mb-1">
+                        <span>Discount</span>
+                        <select class="form-control form-control-sm f-discount-mode" style="width:auto;padding:0 4px;">
+                            <option value="percent">Enter %</option>
+                            <option value="amount">Enter Amount</option>
+                        </select>
+                    </label>
+                    <input type="number" step="0.01" min="0" max="100" class="form-control f-discount-pct" placeholder="Discount %" value="0">
+                    <input type="number" step="0.01" min="0" class="form-control f-discount-amt mt-1" placeholder="Discount Amount" value="0" style="display:none;">
+                    <small class="text-muted">(on Fare Amount) = <span class="f-discount-computed">0.00</span></small>
                 </div>
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Sales Agent</label>
@@ -241,31 +256,64 @@
         return out.filter(s => s.length).join('-');
     }
 
+    function applyPsfMode(card) {
+        const mode = card.querySelector('.f-psf-mode').value;
+        card.querySelector('.f-psf-pct').style.display = mode === 'amount' ? 'none' : '';
+        card.querySelector('.f-psf-amt-input').style.display = mode === 'amount' ? '' : 'none';
+    }
+
+    function applyDiscountMode(card) {
+        const mode = card.querySelector('.f-discount-mode').value;
+        card.querySelector('.f-discount-pct').style.display = mode === 'amount' ? 'none' : '';
+        card.querySelector('.f-discount-amt').style.display = mode === 'amount' ? '' : 'none';
+    }
+
     function recalcCard(card) {
         // Mirrors TicketSaleInvoiceLine::recalculate() server-side — this is
         // for live display only, the server always recomputes authoritatively.
+        const round2 = n => Math.round(n * 100) / 100;
+
         const fare = parseFloat(card.querySelector('.f-fare').value) || 0;
         const tax = parseFloat(card.querySelector('.f-tax').value) || 0;
         const aptPct = parseFloat(card.querySelector('.f-apt-pct').value) || 0;
-        const psfPct = parseFloat(card.querySelector('.f-psf-pct').value) || 0;
         const psfBasis = card.querySelector('.f-psf-basis').value || 'fare';
-        const discount = parseFloat(card.querySelector('.f-discount').value) || 0;
+        const psfMode = card.querySelector('.f-psf-mode').value || 'percent';
+        const discountMode = card.querySelector('.f-discount-mode').value || 'percent';
         const commPct = parseFloat(card.querySelector('.f-commission-pct').value) || 0;
         const whtPct = parseFloat(card.querySelector('.f-wht-pct').value) || 0;
         const agentCommPct = parseFloat(card.querySelector('.f-agent-commission-pct').value) || 0;
 
-        const round2 = n => Math.round(n * 100) / 100;
-
         const aptAmt = round2(fare * aptPct / 100);
+
+        // PSF — enter either the % or the amount, the other side is calculated.
         const psfBasisAmt = psfBasis === 'total' ? round2(fare + tax + aptAmt) : fare;
-        const psfAmt = round2(psfBasisAmt * psfPct / 100);
+        let psfPct, psfAmt;
+        if (psfMode === 'amount') {
+            psfAmt = parseFloat(card.querySelector('.f-psf-amt-input').value) || 0;
+            psfPct = psfBasisAmt > 0 ? round2(psfAmt / psfBasisAmt * 100) : 0;
+        } else {
+            psfPct = parseFloat(card.querySelector('.f-psf-pct').value) || 0;
+            psfAmt = round2(psfBasisAmt * psfPct / 100);
+        }
+
+        // Discount — same enter-either-side pattern, based on Fare Amount.
+        let discPct, discAmt;
+        if (discountMode === 'amount') {
+            discAmt = parseFloat(card.querySelector('.f-discount-amt').value) || 0;
+            discPct = fare > 0 ? round2(discAmt / fare * 100) : 0;
+        } else {
+            discPct = parseFloat(card.querySelector('.f-discount-pct').value) || 0;
+            discAmt = round2(fare * discPct / 100);
+        }
+
         const commAmt = round2(fare * commPct / 100);
         const whtAmt = round2(commAmt * whtPct / 100);
-        const total = round2(fare + tax + aptAmt + psfAmt - discount);
+        const total = round2(fare + tax + aptAmt + psfAmt - discAmt);
         const agentCommAmt = round2(total * agentCommPct / 100);
 
         card.querySelector('.f-apt-amt').textContent = aptAmt.toFixed(2);
-        card.querySelector('.f-psf-amt').textContent = psfAmt.toFixed(2);
+        card.querySelector('.f-psf-computed').textContent = psfMode === 'amount' ? psfPct.toFixed(2) + '%' : psfAmt.toFixed(2);
+        card.querySelector('.f-discount-computed').textContent = discountMode === 'amount' ? discPct.toFixed(2) + '%' : discAmt.toFixed(2);
         card.querySelector('.f-commission-amt').textContent = commAmt.toFixed(2);
         card.querySelector('.f-wht-amt').textContent = whtAmt.toFixed(2);
         card.querySelector('.f-agent-commission-amt').textContent = agentCommAmt.toFixed(2);
@@ -304,9 +352,12 @@
             '.f-leg1-from': 'leg1_from', '.f-leg1-stay': 'leg1_stay', '.f-leg1-to': 'leg1_to',
             '.f-leg2-from': 'leg2_from', '.f-leg2-stay': 'leg2_stay', '.f-leg2-to': 'leg2_to',
             '.f-fare': 'fare_amount', '.f-tax': 'tax_amount', '.f-apt-pct': 'apt_percent',
-            '.f-commission-pct': 'commission_percent', '.f-wht-pct': 'wht_percent', '.f-psf-pct': 'psf_percent',
-            '.f-psf-basis': 'psf_basis',
-            '.f-discount': 'discount_amount', '.f-agent': 'sales_agent_id',
+            '.f-commission-pct': 'commission_percent', '.f-wht-pct': 'wht_percent',
+            '.f-psf-pct': 'psf_percent', '.f-psf-amt-input': 'psf_amount',
+            '.f-psf-basis': 'psf_basis', '.f-psf-mode': 'psf_input_mode',
+            '.f-discount-pct': 'discount_percent', '.f-discount-amt': 'discount_amount',
+            '.f-discount-mode': 'discount_input_mode',
+            '.f-agent': 'sales_agent_id',
             '.f-agent-commission-pct': 'agent_commission_percent',
         };
         Object.keys(map).forEach(sel => card.querySelector(sel).dataset.name = map[sel]);
@@ -336,10 +387,16 @@
         card.querySelector('.f-commission-pct').value = prefill.commission_percent || 0;
         card.querySelector('.f-wht-pct').value = prefill.wht_percent || 0;
         card.querySelector('.f-psf-pct').value = prefill.psf_percent || 0;
+        card.querySelector('.f-psf-amt-input').value = prefill.psf_amount || 0;
         card.querySelector('.f-psf-basis').value = prefill.psf_basis || 'fare';
-        card.querySelector('.f-discount').value = prefill.discount_amount || 0;
+        card.querySelector('.f-psf-mode').value = prefill.psf_input_mode || 'percent';
+        card.querySelector('.f-discount-pct').value = prefill.discount_percent || 0;
+        card.querySelector('.f-discount-amt').value = prefill.discount_amount || 0;
+        card.querySelector('.f-discount-mode').value = prefill.discount_input_mode || 'percent';
         card.querySelector('.f-agent').value = prefill.sales_agent_id || '';
         card.querySelector('.f-agent-commission-pct').value = prefill.agent_commission_percent || 0;
+        applyPsfMode(card);
+        applyDiscountMode(card);
 
         const leg2Wrap = card.querySelector('.f-leg2-wrap');
         leg2Wrap.style.display = card.querySelector('.f-trip-type').value === 'return' ? 'flex' : 'none';
@@ -365,10 +422,12 @@
             }
         });
 
-        card.querySelectorAll('.f-fare, .f-tax, .f-apt-pct, .f-psf-pct, .f-discount, .f-commission-pct, .f-wht-pct, .f-agent-commission-pct').forEach(el => {
+        card.querySelectorAll('.f-fare, .f-tax, .f-apt-pct, .f-psf-pct, .f-psf-amt-input, .f-discount-pct, .f-discount-amt, .f-commission-pct, .f-wht-pct, .f-agent-commission-pct').forEach(el => {
             el.addEventListener('input', () => recalcCard(card));
         });
         card.querySelector('.f-psf-basis').addEventListener('change', () => recalcCard(card));
+        card.querySelector('.f-psf-mode').addEventListener('change', () => { applyPsfMode(card); recalcCard(card); });
+        card.querySelector('.f-discount-mode').addEventListener('change', () => { applyDiscountMode(card); recalcCard(card); });
 
         card.querySelector('.remove-ticket-btn').addEventListener('click', () => {
             card.remove();

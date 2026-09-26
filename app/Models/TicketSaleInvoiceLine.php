@@ -12,7 +12,9 @@ class TicketSaleInvoiceLine extends Model
         'trip_type', 'leg1_from', 'leg1_stay', 'leg1_to',
         'leg2_from', 'leg2_stay', 'leg2_to',
         'fare_amount', 'tax_amount', 'apt_charges', 'apt_percent', 'commission_percent',
-        'commission_amount', 'wht_amount', 'wht_percent', 'psf_amount', 'psf_percent', 'psf_basis', 'discount_amount',
+        'commission_amount', 'wht_amount', 'wht_percent',
+        'psf_amount', 'psf_percent', 'psf_basis', 'psf_input_mode',
+        'discount_amount', 'discount_percent', 'discount_input_mode',
         'total_amount', 'sales_agent_id', 'agent_commission_amount', 'agent_commission_percent',
         'status',
         'refund_date', 'refund_adjustment_date', 'refund_fare_amount',
@@ -33,6 +35,7 @@ class TicketSaleInvoiceLine extends Model
         'psf_amount' => 'decimal:2',
         'psf_percent' => 'decimal:2',
         'discount_amount' => 'decimal:2',
+        'discount_percent' => 'decimal:2',
         'total_amount' => 'decimal:2',
         'agent_commission_amount' => 'decimal:2',
         'agent_commission_percent' => 'decimal:2',
@@ -67,6 +70,17 @@ class TicketSaleInvoiceLine extends Model
     public const PSF_BASIS_FARE = 'fare';
     public const PSF_BASIS_TOTAL = 'total';
     public const PSF_BASES = [self::PSF_BASIS_FARE, self::PSF_BASIS_TOTAL];
+
+    /**
+     * Which side of a percent/amount pair was actually typed in — the
+     * other side is always the one calculated. Applies to both PSF
+     * (psf_percent/psf_amount) and Discount (discount_percent/
+     * discount_amount): client feedback wanted "enter either one,
+     * vice versa" rather than a fixed direction.
+     */
+    public const INPUT_MODE_PERCENT = 'percent';
+    public const INPUT_MODE_AMOUNT = 'amount';
+    public const INPUT_MODES = [self::INPUT_MODE_PERCENT, self::INPUT_MODE_AMOUNT];
 
     public function invoice()
     {
@@ -156,12 +170,11 @@ class TicketSaleInvoiceLine extends Model
 
     /**
      * Recompute every derived amount from the raw inputs (fare, tax, and
-     * the four percentages). Called before every save so stored figures
+     * the percentages/amounts). Called before every save so stored figures
      * never drift from what was actually typed in.
      *
-     * Client fix: APT charges, PSF, WHT, and agent commission are no
-     * longer typed in directly — each is now a percentage of some base
-     * amount:
+     * Client fix: APT charges, PSF, WHT, and agent commission are each a
+     * percentage of some base amount:
      *   apt_charges              = fare_amount * apt_percent / 100
      *   psf_amount                = psfBasisAmount * psf_percent / 100
      *   commission_amount          = fare_amount * commission_percent / 100   (airline commission)
@@ -169,11 +182,22 @@ class TicketSaleInvoiceLine extends Model
      *   total_amount               = fare + tax + apt_charges + psf_amount − discount
      *   agent_commission_amount   = total_amount * agent_commission_percent / 100
      *
-     * Order matters: apt_charges is computed before psf_amount (PSF can be
-     * based on the fare+tax+APT subtotal); commission_amount is computed
-     * before wht_amount (WHT is a % of the commission, not the fare); and
-     * total_amount is computed before agent_commission_amount (which is a
-     * % of the final total, not of the fare) — so nothing here is circular.
+     * PSF and Discount are each "enter either side" pairs — psf_input_mode
+     * / discount_input_mode says which of the percent/amount was actually
+     * typed in; the other one is always the one this method calculates
+     * back out, so the pair never disagrees with itself:
+     *   mode = percent → amount = basis * percent / 100
+     *   mode = amount  → percent = basis > 0 ? amount / basis * 100 : 0
+     * PSF's basis is psfBasisAmount (fare, or fare+tax+APT — see
+     * psf_basis); Discount's basis is fare_amount, matching APT's basis.
+     *
+     * Order matters: apt_charges is computed before PSF (PSF can be based
+     * on the fare+tax+APT subtotal); commission_amount is computed before
+     * wht_amount (WHT is a % of the commission, not the fare); PSF and
+     * Discount are both resolved before total_amount (which consumes their
+     * amounts); and total_amount is computed before agent_commission_amount
+     * (which is a % of the final total, not of the fare) — so nothing here
+     * is circular.
      */
     public function recalculate(): void
     {
@@ -185,7 +209,22 @@ class TicketSaleInvoiceLine extends Model
         $psfBasisAmount = $this->psf_basis === self::PSF_BASIS_TOTAL
             ? round($fare + $tax + ((float) $this->apt_charges), 2)
             : $fare;
-        $this->psf_amount = round($psfBasisAmount * ((float) $this->psf_percent) / 100, 2);
+
+        if ($this->psf_input_mode === self::INPUT_MODE_AMOUNT) {
+            $this->psf_percent = $psfBasisAmount > 0
+                ? round(((float) $this->psf_amount) / $psfBasisAmount * 100, 2)
+                : 0.0;
+        } else {
+            $this->psf_amount = round($psfBasisAmount * ((float) $this->psf_percent) / 100, 2);
+        }
+
+        if ($this->discount_input_mode === self::INPUT_MODE_AMOUNT) {
+            $this->discount_percent = $fare > 0
+                ? round(((float) $this->discount_amount) / $fare * 100, 2)
+                : 0.0;
+        } else {
+            $this->discount_amount = round($fare * ((float) $this->discount_percent) / 100, 2);
+        }
 
         $this->commission_amount = round($fare * ((float) $this->commission_percent) / 100, 2);
         $this->wht_amount = round(((float) $this->commission_amount) * ((float) $this->wht_percent) / 100, 2);

@@ -94,8 +94,15 @@
                 <div class="row mb-2">
                     <div class="col-md-2"><strong>WHT % (on comm):</strong> {{ number_format($line->wht_percent, 2) }}%</div>
                     <div class="col-md-2"><strong>WHT:</strong> {{ number_format($line->wht_amount, 2) }}</div>
-                    <div class="col-md-2"><strong>PSF %:</strong> {{ number_format($line->psf_percent, 2) }}% <small class="text-muted">({{ $line->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }})</small></div>
+                    <div class="col-md-2">
+                        <strong>PSF %:</strong> {{ number_format($line->psf_percent, 2) }}%
+                        <small class="text-muted">({{ $line->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }}{{ $line->psf_input_mode === 'amount' ? ', from amount' : '' }})</small>
+                    </div>
                     <div class="col-md-2"><strong>PSF:</strong> {{ number_format($line->psf_amount, 2) }}</div>
+                    <div class="col-md-2">
+                        <strong>Discount %:</strong> {{ number_format($line->discount_percent, 2) }}%
+                        <small class="text-muted">{{ $line->discount_input_mode === 'amount' ? '(from amount)' : '' }}</small>
+                    </div>
                     <div class="col-md-2"><strong>Discount:</strong> {{ number_format($line->discount_amount, 2) }}</div>
                     <div class="col-md-2"><strong>Agent:</strong> {{ $line->salesAgent->name ?? '—' }}</div>
                     <div class="col-md-2"><strong>Agent Comm %:</strong> {{ number_format($line->agent_commission_percent, 2) }}%</div>
