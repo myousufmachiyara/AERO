@@ -86,17 +86,22 @@
                 <div class="row mb-2">
                     <div class="col-md-2"><strong>Fare:</strong> {{ number_format($line->fare_amount, 2) }}</div>
                     <div class="col-md-2"><strong>Tax:</strong> {{ number_format($line->tax_amount, 2) }}</div>
+                    <div class="col-md-2"><strong>APT %:</strong> {{ number_format($line->apt_percent, 2) }}%</div>
                     <div class="col-md-2"><strong>APT:</strong> {{ number_format($line->apt_charges, 2) }}</div>
                     <div class="col-md-2"><strong>Comm %:</strong> {{ number_format($line->commission_percent, 2) }}</div>
                     <div class="col-md-2"><strong>Comm Amt:</strong> {{ number_format($line->commission_amount, 2) }}</div>
-                    <div class="col-md-2"><strong>WHT:</strong> {{ number_format($line->wht_amount, 2) }}</div>
                 </div>
                 <div class="row mb-2">
+                    <div class="col-md-2"><strong>WHT:</strong> {{ number_format($line->wht_amount, 2) }}</div>
+                    <div class="col-md-2"><strong>PSF %:</strong> {{ number_format($line->psf_percent, 2) }}% <small class="text-muted">({{ $line->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }})</small></div>
                     <div class="col-md-2"><strong>PSF:</strong> {{ number_format($line->psf_amount, 2) }}</div>
                     <div class="col-md-2"><strong>Discount:</strong> {{ number_format($line->discount_amount, 2) }}</div>
                     <div class="col-md-2"><strong>Agent:</strong> {{ $line->salesAgent->name ?? '—' }}</div>
+                    <div class="col-md-2"><strong>Agent Comm %:</strong> {{ number_format($line->agent_commission_percent, 2) }}%</div>
+                </div>
+                <div class="row mb-2">
                     <div class="col-md-2"><strong>Agent Comm:</strong> {{ number_format($line->agent_commission_amount, 2) }}</div>
-                    <div class="col-md-4 text-end"><strong>Amount Receivable:</strong> <span class="fs-5">{{ number_format($line->effectiveReceivable(), 2) }}</span></div>
+                    <div class="col-md-10 text-end"><strong>Amount Receivable:</strong> <span class="fs-5">{{ number_format($line->effectiveReceivable(), 2) }}</span></div>
                 </div>
 
                 @if($line->status === 'refunded')

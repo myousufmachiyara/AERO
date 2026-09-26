@@ -11,9 +11,9 @@ class TicketSaleInvoiceLine extends Model
         'pax_name', 'pax_type', 'pnr', 'ticket_no',
         'trip_type', 'leg1_from', 'leg1_stay', 'leg1_to',
         'leg2_from', 'leg2_stay', 'leg2_to',
-        'fare_amount', 'tax_amount', 'apt_charges', 'commission_percent',
-        'commission_amount', 'wht_amount', 'psf_amount', 'discount_amount',
-        'total_amount', 'sales_agent_id', 'agent_commission_amount',
+        'fare_amount', 'tax_amount', 'apt_charges', 'apt_percent', 'commission_percent',
+        'commission_amount', 'wht_amount', 'psf_amount', 'psf_percent', 'psf_basis', 'discount_amount',
+        'total_amount', 'sales_agent_id', 'agent_commission_amount', 'agent_commission_percent',
         'status',
         'refund_date', 'refund_adjustment_date', 'refund_fare_amount',
         'refund_tax_amount', 'refund_charges', 'refund_amount', 'refund_profit',
@@ -25,13 +25,16 @@ class TicketSaleInvoiceLine extends Model
         'fare_amount' => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'apt_charges' => 'decimal:2',
+        'apt_percent' => 'decimal:2',
         'commission_percent' => 'decimal:2',
         'commission_amount' => 'decimal:2',
         'wht_amount' => 'decimal:2',
         'psf_amount' => 'decimal:2',
+        'psf_percent' => 'decimal:2',
         'discount_amount' => 'decimal:2',
         'total_amount' => 'decimal:2',
         'agent_commission_amount' => 'decimal:2',
+        'agent_commission_percent' => 'decimal:2',
         'refund_date' => 'date',
         'refund_adjustment_date' => 'date',
         'refund_fare_amount' => 'decimal:2',
@@ -52,6 +55,17 @@ class TicketSaleInvoiceLine extends Model
     public const STATUS_REFUNDED = 'refunded';
     public const STATUS_VOIDED = 'voided';
     public const STATUSES = [self::STATUS_ACTIVE, self::STATUS_REFUNDED, self::STATUS_VOIDED];
+
+    /**
+     * What PSF % is calculated against. 'fare' = Fare Amount (most common).
+     * 'total' = the ticket's fare+tax+APT subtotal — used for the airlines/
+     * suppliers that price PSF off the fuller amount rather than the bare
+     * fare. Deliberately excludes PSF and discount themselves from that
+     * subtotal (a PSF-on-total-including-PSF would be circular).
+     */
+    public const PSF_BASIS_FARE = 'fare';
+    public const PSF_BASIS_TOTAL = 'total';
+    public const PSF_BASES = [self::PSF_BASIS_FARE, self::PSF_BASIS_TOTAL];
 
     public function invoice()
     {
@@ -140,22 +154,47 @@ class TicketSaleInvoiceLine extends Model
     }
 
     /**
-     * Recompute commission_amount and total_amount from the raw inputs.
-     * Called before every save so stored figures never drift from what
-     * was actually typed in.
+     * Recompute every derived amount from the raw inputs (fare, tax, and
+     * the four percentages). Called before every save so stored figures
+     * never drift from what was actually typed in.
+     *
+     * Client fix: APT charges, PSF, and agent commission are no longer
+     * typed in directly — each is now a percentage of some base amount:
+     *   apt_charges              = fare_amount * apt_percent / 100
+     *   psf_amount                = psfBasisAmount * psf_percent / 100
+     *   commission_amount          = fare_amount * commission_percent / 100   (airline commission — unchanged)
+     *   total_amount               = fare + tax + apt_charges + psf_amount − discount
+     *   agent_commission_amount   = total_amount * agent_commission_percent / 100
+     *
+     * Order matters: apt_charges is computed before psf_amount (PSF can be
+     * based on the fare+tax+APT subtotal), and total_amount is computed
+     * before agent_commission_amount (which is a % of the final total, not
+     * of the fare) — so nothing here is circular.
      */
     public function recalculate(): void
     {
-        $this->commission_amount = round(((float) $this->fare_amount) * ((float) $this->commission_percent) / 100, 2);
+        $fare = (float) $this->fare_amount;
+        $tax = (float) $this->tax_amount;
+
+        $this->apt_charges = round($fare * ((float) $this->apt_percent) / 100, 2);
+
+        $psfBasisAmount = $this->psf_basis === self::PSF_BASIS_TOTAL
+            ? round($fare + $tax + ((float) $this->apt_charges), 2)
+            : $fare;
+        $this->psf_amount = round($psfBasisAmount * ((float) $this->psf_percent) / 100, 2);
+
+        $this->commission_amount = round($fare * ((float) $this->commission_percent) / 100, 2);
 
         $this->total_amount = round(
-            ((float) $this->fare_amount)
-            + ((float) $this->tax_amount)
+            $fare
+            + $tax
             + ((float) $this->apt_charges)
             + ((float) $this->psf_amount)
             - ((float) $this->discount_amount),
             2
         );
+
+        $this->agent_commission_amount = round(((float) $this->total_amount) * ((float) $this->agent_commission_percent) / 100, 2);
     }
 
     /**
