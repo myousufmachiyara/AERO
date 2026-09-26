@@ -12,7 +12,7 @@ class TicketSaleInvoiceLine extends Model
         'trip_type', 'leg1_from', 'leg1_stay', 'leg1_to',
         'leg2_from', 'leg2_stay', 'leg2_to',
         'fare_amount', 'tax_amount', 'apt_charges', 'apt_percent', 'commission_percent',
-        'commission_amount', 'wht_amount', 'psf_amount', 'psf_percent', 'psf_basis', 'discount_amount',
+        'commission_amount', 'wht_amount', 'wht_percent', 'psf_amount', 'psf_percent', 'psf_basis', 'discount_amount',
         'total_amount', 'sales_agent_id', 'agent_commission_amount', 'agent_commission_percent',
         'status',
         'refund_date', 'refund_adjustment_date', 'refund_fare_amount',
@@ -29,6 +29,7 @@ class TicketSaleInvoiceLine extends Model
         'commission_percent' => 'decimal:2',
         'commission_amount' => 'decimal:2',
         'wht_amount' => 'decimal:2',
+        'wht_percent' => 'decimal:2',
         'psf_amount' => 'decimal:2',
         'psf_percent' => 'decimal:2',
         'discount_amount' => 'decimal:2',
@@ -158,18 +159,21 @@ class TicketSaleInvoiceLine extends Model
      * the four percentages). Called before every save so stored figures
      * never drift from what was actually typed in.
      *
-     * Client fix: APT charges, PSF, and agent commission are no longer
-     * typed in directly — each is now a percentage of some base amount:
+     * Client fix: APT charges, PSF, WHT, and agent commission are no
+     * longer typed in directly — each is now a percentage of some base
+     * amount:
      *   apt_charges              = fare_amount * apt_percent / 100
      *   psf_amount                = psfBasisAmount * psf_percent / 100
-     *   commission_amount          = fare_amount * commission_percent / 100   (airline commission — unchanged)
+     *   commission_amount          = fare_amount * commission_percent / 100   (airline commission)
+     *   wht_amount                 = commission_amount * wht_percent / 100    (withholding on that commission)
      *   total_amount               = fare + tax + apt_charges + psf_amount − discount
      *   agent_commission_amount   = total_amount * agent_commission_percent / 100
      *
      * Order matters: apt_charges is computed before psf_amount (PSF can be
-     * based on the fare+tax+APT subtotal), and total_amount is computed
-     * before agent_commission_amount (which is a % of the final total, not
-     * of the fare) — so nothing here is circular.
+     * based on the fare+tax+APT subtotal); commission_amount is computed
+     * before wht_amount (WHT is a % of the commission, not the fare); and
+     * total_amount is computed before agent_commission_amount (which is a
+     * % of the final total, not of the fare) — so nothing here is circular.
      */
     public function recalculate(): void
     {
@@ -184,6 +188,7 @@ class TicketSaleInvoiceLine extends Model
         $this->psf_amount = round($psfBasisAmount * ((float) $this->psf_percent) / 100, 2);
 
         $this->commission_amount = round($fare * ((float) $this->commission_percent) / 100, 2);
+        $this->wht_amount = round(((float) $this->commission_amount) * ((float) $this->wht_percent) / 100, 2);
 
         $this->total_amount = round(
             $fare

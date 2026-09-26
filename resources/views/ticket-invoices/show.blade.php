@@ -92,6 +92,7 @@
                     <div class="col-md-2"><strong>Comm Amt:</strong> {{ number_format($line->commission_amount, 2) }}</div>
                 </div>
                 <div class="row mb-2">
+                    <div class="col-md-2"><strong>WHT % (on comm):</strong> {{ number_format($line->wht_percent, 2) }}%</div>
                     <div class="col-md-2"><strong>WHT:</strong> {{ number_format($line->wht_amount, 2) }}</div>
                     <div class="col-md-2"><strong>PSF %:</strong> {{ number_format($line->psf_percent, 2) }}% <small class="text-muted">({{ $line->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }})</small></div>
                     <div class="col-md-2"><strong>PSF:</strong> {{ number_format($line->psf_amount, 2) }}</div>

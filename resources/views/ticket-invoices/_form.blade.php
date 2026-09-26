@@ -70,7 +70,7 @@
             'leg1_from' => $l->leg1_from, 'leg1_stay' => $l->leg1_stay, 'leg1_to' => $l->leg1_to,
             'leg2_from' => $l->leg2_from, 'leg2_stay' => $l->leg2_stay, 'leg2_to' => $l->leg2_to,
             'fare_amount' => $l->fare_amount, 'tax_amount' => $l->tax_amount, 'apt_percent' => $l->apt_percent,
-            'commission_percent' => $l->commission_percent, 'wht_amount' => $l->wht_amount,
+            'commission_percent' => $l->commission_percent, 'wht_percent' => $l->wht_percent,
             'psf_percent' => $l->psf_percent, 'psf_basis' => $l->psf_basis, 'discount_amount' => $l->discount_amount,
             'sales_agent_id' => $l->sales_agent_id, 'agent_commission_percent' => $l->agent_commission_percent,
         ];
@@ -170,8 +170,9 @@
                     <small class="text-muted">= <span class="f-commission-amt">0.00</span> (from airline)</small>
                 </div>
                 <div class="col-md-2 mb-2">
-                    <label class="form-label">WHT</label>
-                    <input type="number" step="0.01" min="0" class="form-control f-wht" value="0">
+                    <label class="form-label">WHT % (on commission)</label>
+                    <input type="number" step="0.01" min="0" max="100" class="form-control f-wht-pct" value="0">
+                    <small class="text-muted">= <span class="f-wht-amt">0.00</span></small>
                 </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">PSF %</label>
@@ -250,6 +251,7 @@
         const psfBasis = card.querySelector('.f-psf-basis').value || 'fare';
         const discount = parseFloat(card.querySelector('.f-discount').value) || 0;
         const commPct = parseFloat(card.querySelector('.f-commission-pct').value) || 0;
+        const whtPct = parseFloat(card.querySelector('.f-wht-pct').value) || 0;
         const agentCommPct = parseFloat(card.querySelector('.f-agent-commission-pct').value) || 0;
 
         const round2 = n => Math.round(n * 100) / 100;
@@ -258,12 +260,14 @@
         const psfBasisAmt = psfBasis === 'total' ? round2(fare + tax + aptAmt) : fare;
         const psfAmt = round2(psfBasisAmt * psfPct / 100);
         const commAmt = round2(fare * commPct / 100);
+        const whtAmt = round2(commAmt * whtPct / 100);
         const total = round2(fare + tax + aptAmt + psfAmt - discount);
         const agentCommAmt = round2(total * agentCommPct / 100);
 
         card.querySelector('.f-apt-amt').textContent = aptAmt.toFixed(2);
         card.querySelector('.f-psf-amt').textContent = psfAmt.toFixed(2);
         card.querySelector('.f-commission-amt').textContent = commAmt.toFixed(2);
+        card.querySelector('.f-wht-amt').textContent = whtAmt.toFixed(2);
         card.querySelector('.f-agent-commission-amt').textContent = agentCommAmt.toFixed(2);
         card.querySelector('.f-total-amount').textContent = total.toFixed(2);
         card.dataset.total = total;
@@ -300,7 +304,7 @@
             '.f-leg1-from': 'leg1_from', '.f-leg1-stay': 'leg1_stay', '.f-leg1-to': 'leg1_to',
             '.f-leg2-from': 'leg2_from', '.f-leg2-stay': 'leg2_stay', '.f-leg2-to': 'leg2_to',
             '.f-fare': 'fare_amount', '.f-tax': 'tax_amount', '.f-apt-pct': 'apt_percent',
-            '.f-commission-pct': 'commission_percent', '.f-wht': 'wht_amount', '.f-psf-pct': 'psf_percent',
+            '.f-commission-pct': 'commission_percent', '.f-wht-pct': 'wht_percent', '.f-psf-pct': 'psf_percent',
             '.f-psf-basis': 'psf_basis',
             '.f-discount': 'discount_amount', '.f-agent': 'sales_agent_id',
             '.f-agent-commission-pct': 'agent_commission_percent',
@@ -330,7 +334,7 @@
         card.querySelector('.f-tax').value = prefill.tax_amount || 0;
         card.querySelector('.f-apt-pct').value = prefill.apt_percent || 0;
         card.querySelector('.f-commission-pct').value = prefill.commission_percent || 0;
-        card.querySelector('.f-wht').value = prefill.wht_amount || 0;
+        card.querySelector('.f-wht-pct').value = prefill.wht_percent || 0;
         card.querySelector('.f-psf-pct').value = prefill.psf_percent || 0;
         card.querySelector('.f-psf-basis').value = prefill.psf_basis || 'fare';
         card.querySelector('.f-discount').value = prefill.discount_amount || 0;
@@ -361,7 +365,7 @@
             }
         });
 
-        card.querySelectorAll('.f-fare, .f-tax, .f-apt-pct, .f-psf-pct, .f-discount, .f-commission-pct, .f-agent-commission-pct').forEach(el => {
+        card.querySelectorAll('.f-fare, .f-tax, .f-apt-pct, .f-psf-pct, .f-discount, .f-commission-pct, .f-wht-pct, .f-agent-commission-pct').forEach(el => {
             el.addEventListener('input', () => recalcCard(card));
         });
         card.querySelector('.f-psf-basis').addEventListener('change', () => recalcCard(card));
