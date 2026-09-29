@@ -26,8 +26,22 @@ return [
 
     // The agency's own name, shown on the Void action as the label for
     // the deduction the company itself retains (as opposed to the
-    // deduction the supplier/airline charges).
-    'company_name' => env('TRAVEL_COMPANY_NAME', 'AERO Adventure'),
+    // deduction the supplier/airline charges), and printed as the header
+    // on the customer-facing Ticket Sale Invoice PDF.
+    'company_name' => env('TRAVEL_COMPANY_NAME', 'Aero Adventure Travel & Tour.'),
+
+    // Printed on the customer-facing Ticket Sale Invoice PDF header, under
+    // the company name. Defaults match the sample invoice you shared —
+    // override via .env (or here) if any of these are wrong/change.
+    'company_address' => env('TRAVEL_COMPANY_ADDRESS', 'M-2, Alamgir Terrace, Plot # Z-11 Block 3, Maqboolabad Co-Operative Housing Society Khi.'),
+    'company_phone' => env('TRAVEL_COMPANY_PHONE', '021-34851025'),
+    'company_license_line' => env('TRAVEL_COMPANY_LICENSE_LINE', 'LICENSE NO: GL:5905, NTN: 5526949-4'),
+
+    // Public path (relative to public_path()) of the company logo shown
+    // top-left on the customer-facing Ticket Sale Invoice PDF. Drop the
+    // real logo file at this path — nothing else needs to change; until
+    // it exists, the PDF prints a placeholder box instead.
+    'company_logo_path' => env('TRAVEL_COMPANY_LOGO_PATH', 'assets/img/aero-logo.png'),
 
     // Airlines get their own COA ledger (separate from Suppliers) because
     // commission is receivable from the airline directly. Looked up/created

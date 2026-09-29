@@ -10,6 +10,7 @@ use App\Models\TicketSaleInvoice;
 use App\Models\TicketSaleInvoiceLine;
 use App\Models\User;
 use App\Services\TicketInvoicePostingService;
+use App\Support\NumberWords;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -195,11 +196,180 @@ class TicketSaleInvoiceController extends Controller
     }
 
     /** Customer-facing print — fare/tax/total only, none of the internal cost/commission detail. */
+    /**
+     * Customer-facing print — matches the exact AERO invoice format
+     * (logo, company header, Client/meta block, category box, line
+     * table, amount-in-words + net value footer, signature lines) via
+     * TCPDF, in place of the old plain HTML print view.
+     */
     public function printCustomer(string $id)
     {
         $invoice = TicketSaleInvoice::with(['customer', 'lines' => fn ($q) => $q->orderBy('sort_order')])->findOrFail($id);
 
-        return view('ticket-invoices.print_customer', ['invoice' => $invoice]);
+        $pdf = new \TCPDF();
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+        $pdf->SetMargins(10, 10, 10);
+        $pdf->SetAutoPageBreak(true, 15);
+        $pdf->SetCreator(config('app.name', 'AERO'));
+        $pdf->SetAuthor(config('travel.company_name'));
+        $pdf->SetTitle('Invoice ' . $invoice->invoice_no);
+        $pdf->AddPage();
+
+        // ── Header: logo + company block ────────────────────────────
+        $logoPath = public_path(config('travel.company_logo_path', 'assets/img/aero-logo.png'));
+        if (file_exists($logoPath)) {
+            $pdf->Image($logoPath, 12, 8, 26);
+        } else {
+            $pdf->SetLineWidth(0.2);
+            $pdf->Rect(12, 8, 26, 18);
+            $pdf->SetFont('helvetica', '', 7);
+            $pdf->SetXY(12, 15);
+            $pdf->Cell(26, 5, 'LOGO', 0, 0, 'C');
+        }
+
+        $pdf->SetFont('helvetica', 'B', 15);
+        $pdf->SetXY(10, 10);
+        $pdf->Cell(190, 7, config('travel.company_name'), 0, 1, 'C');
+
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetX(10);
+        $pdf->Cell(190, 4, config('travel.company_address'), 0, 1, 'C');
+        $pdf->SetX(10);
+        $pdf->Cell(190, 4, 'Phone: ' . config('travel.company_phone'), 0, 1, 'C');
+        $pdf->SetX(10);
+        $pdf->Cell(190, 4, config('travel.company_license_line'), 0, 1, 'C');
+
+        $pdf->Ln(3);
+        $pdf->SetFont('helvetica', 'B', 13);
+        $pdf->Cell(190, 8, 'INVOICE', 0, 1, 'C');
+        $pdf->Ln(1);
+
+        // ── Client / meta two-column block ──────────────────────────
+        $customer = $invoice->customer;
+        $pdf->SetFont('helvetica', '', 8);
+
+        $pdf->SetX(10);
+        $pdf->Cell(20, 4.5, 'Client', 0, 0);
+        $pdf->Cell(75, 4.5, $customer->name ?? '—', 0, 0);
+        $pdf->Cell(35, 4.5, 'Print Date:', 0, 0);
+        $pdf->Cell(0, 4.5, now()->format('d/m/Y'), 0, 1);
+
+        $pdf->SetX(10);
+        $pdf->Cell(20, 4.5, 'Address', 0, 0);
+        $pdf->Cell(75, 4.5, $customer->address ?? '', 0, 0);
+        $pdf->Cell(35, 4.5, 'Invoice Number', 0, 0);
+        $pdf->Cell(0, 4.5, $invoice->invoice_no, 0, 1);
+
+        $pdf->SetX(10);
+        $pdf->Cell(20, 4.5, 'Phone', 0, 0);
+        $pdf->Cell(75, 4.5, $customer->phone ?? '', 0, 0);
+        $pdf->Cell(35, 4.5, 'Invoice Date:', 0, 0);
+        $pdf->Cell(0, 4.5, $invoice->invoice_date->format('d/m/Y'), 0, 1);
+
+        $pdf->SetX(10);
+        $pdf->Cell(20, 4.5, 'NTN :', 0, 0);
+        $pdf->Cell(75, 4.5, '', 0, 0);
+        $pdf->Cell(35, 4.5, 'Contact To:', 0, 0);
+        $pdf->Cell(0, 4.5, '', 0, 1);
+
+        $pdf->Ln(2);
+
+        // ── Category box (Visa / Ticket / ... on the AERO template) ──
+        $boxY = $pdf->GetY();
+        $pdf->SetLineWidth(0.2);
+        $pdf->Rect(10, $boxY, 30, 6);
+        $pdf->SetFont('helvetica', '', 9);
+        $pdf->SetXY(11, $boxY + 1);
+        $pdf->Cell(28, 4, 'Ticket', 0, 0);
+        $pdf->SetY($boxY + 8);
+
+        // ── Line items ───────────────────────────────────────────────
+        // Columns mirror the AERO template exactly, mapped for Ticket:
+        // Remarks = route/cities, "Visa Type" -> "Ticket No.", and only
+        // what the customer is actually charged (Net Amount) is shown —
+        // no fare/tax/commission/WHT/PSF cost breakdown.
+        $html = '<table border="1" cellpadding="2" style="font-size:8px;">'
+            . '<tr style="font-weight:bold;background-color:#f2f2f2;">'
+            . '<th width="26%">Passenger Name</th>'
+            . '<th width="20%">Remarks</th>'
+            . '<th width="18%">Reference No.</th>'
+            . '<th width="18%">Ticket No.</th>'
+            . '<th width="18%" align="right">Net Amount</th>'
+            . '</tr>';
+
+        foreach ($invoice->lines as $line) {
+            $html .= '<tr>'
+                . '<td>' . e($line->pax_name) . '</td>'
+                . '<td>' . e($line->citiesLabel()) . '</td>'
+                . '<td>' . e($line->pnr) . '</td>'
+                . '<td>' . e($line->ticket_no) . '</td>'
+                . '<td align="right">' . number_format($line->effectiveReceivable(), 2) . '</td>'
+                . '</tr>';
+
+            if ($line->status === TicketSaleInvoiceLine::STATUS_REFUNDED) {
+                $html .= '<tr><td colspan="5" style="color:#777777;font-style:italic;">'
+                    . 'Refunded ' . e(optional($line->refund_date)->format('d/m/Y'))
+                    . ' — ' . number_format((float) $line->refund_amount, 2) . ' returned'
+                    . '</td></tr>';
+            } elseif ($line->status === TicketSaleInvoiceLine::STATUS_VOIDED) {
+                $html .= '<tr><td colspan="5" style="color:#777777;font-style:italic;">'
+                    . 'Voided ' . e(optional($line->void_date)->format('d/m/Y'))
+                    . '</td></tr>';
+            }
+        }
+
+        $html .= '</table>';
+        $pdf->writeHTML($html, true, false, false, false, '');
+
+        if ($invoice->remarks) {
+            $pdf->Ln(2);
+            $pdf->writeHTML('<p style="font-size:8px;"><b>Remarks:</b> ' . nl2br(e($invoice->remarks)) . '</p>', true, false, false, false, '');
+        }
+
+        // ── Footer: amount in words + net value, disclaimer, signatures ──
+        if ($pdf->GetY() > 230) {
+            $pdf->AddPage();
+        }
+
+        $pdf->Ln(10);
+        $lineY = $pdf->GetY();
+        $pdf->SetLineWidth(0.2);
+        $pdf->Line(10, $lineY, 200, $lineY);
+        $pdf->SetY($lineY + 2);
+
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetX(10);
+        $pdf->Cell(120, 5, NumberWords::forAmount((float) $invoice->total_amount), 0, 0);
+        $pdf->SetFont('helvetica', 'B', 9);
+        $pdf->Cell(40, 5, 'Invoice Net Value', 0, 0, 'R');
+        $pdf->Cell(20, 5, number_format($invoice->total_amount, 2), 0, 1, 'R');
+
+        $pdf->Ln(6);
+        $pdf->SetFont('helvetica', 'I', 7);
+        $pdf->Cell(190, 4, 'This is computer generated invoice and does not require any stamp or signature', 0, 1, 'C');
+
+        $pdf->Ln(12);
+        $sigY = $pdf->GetY();
+        $pdf->SetLineWidth(0.2);
+        $pdf->Line(10, $sigY, 70, $sigY);
+        $pdf->SetFont('helvetica', '', 8);
+        $pdf->SetXY(10, $sigY + 1);
+        $pdf->Cell(60, 4, 'Acknowledgment', 0, 0, 'L');
+        $pdf->SetXY(130, $sigY + 1);
+        $pdf->Cell(70, 4, 'For ' . config('travel.company_name'), 0, 0, 'R');
+
+        // Build the PDF as a string and return it through Laravel's own
+        // response (rather than TCPDF's 'I' mode, which sets headers via
+        // a raw header() call) so the Content-Type is reliable — both
+        // under a real webserver and under the test client, which never
+        // sees headers set by header() directly.
+        $filename = 'Invoice_' . $invoice->invoice_no . '.pdf';
+
+        return response($pdf->Output($filename, 'S'), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+        ]);
     }
 
     /** Internal print — every field, for the agency's own staff/managers. */
