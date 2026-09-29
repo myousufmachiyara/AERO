@@ -23,12 +23,23 @@ use Illuminate\Support\Facades\Log;
  *   1. One voucher for the whole invoice: Dr Customer, Cr Ticket Sales
  *      Income, for what the customer is actually being charged (already
  *      net of any refund/void adjustments made on individual tickets).
- *   2. One voucher per distinct airline touched by this invoice's active
- *      tickets: Dr that Airline, Cr Airline Commission Income, for the
- *      commission earned net of WHT (WHT is folded into the net
- *      receivable rather than tracked as its own recoverable-tax account
- *      — a deliberate scope simplification, easy to split out later if a
- *      separate WHT ledger is wanted).
+ *   2. Per distinct airline touched by this invoice, up to two vouchers,
+ *      both landing on that same Airline ledger account so its balance
+ *      nets automatically:
+ *        a. Payable — Dr Ticket Cost, Cr Airline — what's actually owed
+ *           to the airline: base cost (fare+tax+APT+PSF) on every active
+ *           ticket, plus the deduction/charge the airline keeps on a
+ *           voided or refunded one. See
+ *           TicketSaleInvoiceLine::effectiveAirlinePayable().
+ *        b. Receivable — Dr Airline, Cr Airline Commission Income — the
+ *           commission earned on active tickets, net of WHT (WHT is
+ *           folded into the net receivable rather than tracked as its
+ *           own recoverable-tax account — a deliberate scope
+ *           simplification, easy to split out later if a separate WHT
+ *           ledger is wanted).
+ *      Posted as two separate vouchers (not netted into one) so both
+ *      sides stay individually auditable; either is skipped if its
+ *      amount rounds to zero.
  *
  * Every voucher this creates is recorded in ticket_invoice_ledger_entries
  * so Unpost can find and reverse exactly those entries, never more.
@@ -75,12 +86,13 @@ class TicketInvoicePostingService
                 ]);
             }
 
-            $byAirline = $lines->filter(fn ($l) => $l->airline_id && $l->effectiveNetCommission() > 0.001)
-                ->groupBy('airline_id');
+            $byAirline = $lines->filter(fn ($l) => $l->airline_id)->groupBy('airline_id');
 
             foreach ($byAirline as $airlineId => $group) {
-                $net = round($group->sum(fn ($l) => $l->effectiveNetCommission()), 2);
-                if ($net <= 0.001) {
+                $payable = round($group->sum(fn ($l) => $l->effectiveAirlinePayable()), 2);
+                $receivable = round($group->sum(fn ($l) => $l->effectiveNetCommission()), 2);
+
+                if ($payable <= 0.001 && $receivable <= 0.001) {
                     continue;
                 }
 
@@ -89,28 +101,55 @@ class TicketInvoicePostingService
                     throw new \RuntimeException("Airline '{$airline?->name}' has no ledger account yet — re-save the airline record first.");
                 }
 
-                $commissionAccount = $this->systemAccount(
-                    config('travel.airline_commission_income_subhead_name'),
-                    config('travel.airline_commission_income_account_name')
-                );
+                if ($payable > 0.001) {
+                    $costAccount = $this->systemAccount(
+                        config('travel.ticket_cost_expense_subhead_name'),
+                        config('travel.ticket_cost_expense_account_name')
+                    );
 
-                $voucher = Voucher::create([
-                    'voucher_type' => 'journal',
-                    'date' => $invoice->effectiveAdjustmentDate()->format('Y-m-d'),
-                    'ac_dr_sid' => $airline->chart_of_account_id,
-                    'ac_cr_sid' => $commissionAccount->id,
-                    'amount' => $net,
-                    'reference' => $invoice->invoice_no,
-                    'description' => "Ticket Sale Invoice {$invoice->invoice_no} — commission receivable from {$airline->name}",
-                ]);
+                    $voucher = Voucher::create([
+                        'voucher_type' => 'journal',
+                        'date' => $invoice->effectiveAdjustmentDate()->format('Y-m-d'),
+                        'ac_dr_sid' => $costAccount->id,
+                        'ac_cr_sid' => $airline->chart_of_account_id,
+                        'amount' => $payable,
+                        'reference' => $invoice->invoice_no,
+                        'description' => "Ticket Sale Invoice {$invoice->invoice_no} — ticket cost payable to {$airline->name}",
+                    ]);
 
-                TicketInvoiceLedgerEntry::create([
-                    'ticket_sale_invoice_id' => $invoice->id,
-                    'voucher_id' => $voucher->id,
-                    'entry_type' => TicketInvoiceLedgerEntry::TYPE_AIRLINE_COMMISSION,
-                    'airline_id' => $airlineId,
-                    'amount' => $net,
-                ]);
+                    TicketInvoiceLedgerEntry::create([
+                        'ticket_sale_invoice_id' => $invoice->id,
+                        'voucher_id' => $voucher->id,
+                        'entry_type' => TicketInvoiceLedgerEntry::TYPE_AIRLINE_PAYABLE,
+                        'airline_id' => $airlineId,
+                        'amount' => $payable,
+                    ]);
+                }
+
+                if ($receivable > 0.001) {
+                    $commissionAccount = $this->systemAccount(
+                        config('travel.airline_commission_income_subhead_name'),
+                        config('travel.airline_commission_income_account_name')
+                    );
+
+                    $voucher = Voucher::create([
+                        'voucher_type' => 'journal',
+                        'date' => $invoice->effectiveAdjustmentDate()->format('Y-m-d'),
+                        'ac_dr_sid' => $airline->chart_of_account_id,
+                        'ac_cr_sid' => $commissionAccount->id,
+                        'amount' => $receivable,
+                        'reference' => $invoice->invoice_no,
+                        'description' => "Ticket Sale Invoice {$invoice->invoice_no} — commission receivable from {$airline->name}",
+                    ]);
+
+                    TicketInvoiceLedgerEntry::create([
+                        'ticket_sale_invoice_id' => $invoice->id,
+                        'voucher_id' => $voucher->id,
+                        'entry_type' => TicketInvoiceLedgerEntry::TYPE_AIRLINE_COMMISSION,
+                        'airline_id' => $airlineId,
+                        'amount' => $receivable,
+                    ]);
+                }
             }
 
             $invoice->update([

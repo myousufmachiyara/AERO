@@ -305,4 +305,32 @@ class TicketSaleInvoiceLine extends Model
             ),
         };
     }
+
+    /**
+     * What this ticket actually owes the airline on posting — the real
+     * ledger-posted payable (see TicketInvoicePostingService), separate
+     * from effectiveSupplierPayable() above which is a Vendor-report
+     * figure keyed to the line's Supplier, not its Airline, and treats a
+     * refunded ticket as 0.
+     *
+     * Client fix: void and refund both leave the airline keeping a
+     * deduction/charge, and that has to actually post as payable —
+     * active: fare + tax + APT + PSF (same base-cost formula); voided:
+     * void_deduction_supplier (what the airline keeps on a void);
+     * refunded: refund_charges (what the airline keeps on a refund).
+     */
+    public function effectiveAirlinePayable(): float
+    {
+        return match ($this->status) {
+            self::STATUS_REFUNDED => (float) ($this->refund_charges ?? 0),
+            self::STATUS_VOIDED => (float) ($this->void_deduction_supplier ?? 0),
+            default => round(
+                ((float) $this->fare_amount)
+                + ((float) $this->tax_amount)
+                + ((float) $this->apt_charges)
+                + ((float) $this->psf_amount),
+                2
+            ),
+        };
+    }
 }

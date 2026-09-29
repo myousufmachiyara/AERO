@@ -43,6 +43,15 @@ return [
     'airline_commission_income_subhead_name' => env('TRAVEL_COMMISSION_INCOME_SUBHEAD', 'Other Income'),
     'airline_commission_income_account_name' => 'Airline Commission Income',
 
+    // The other side of what's actually payable to the airline: base
+    // ticket cost (fare+tax+APT+PSF) on active tickets, plus the
+    // deduction/charges the airline keeps on a voided or refunded ticket.
+    // Posted as Dr Ticket Cost / Cr Airline, netting against the
+    // commission receivable (Dr Airline / Cr Commission Income) above in
+    // the airline's own ledger account.
+    'ticket_cost_expense_subhead_name' => env('TRAVEL_TICKET_COST_SUBHEAD', 'Cost of Goods Sold'),
+    'ticket_cost_expense_account_name' => 'Ticket Cost',
+
     // 13-digit ticket number format: 3 (airline code) - 4 - 3 - 3.
     'ticket_no_segments' => [3, 4, 3, 3],
 ];
