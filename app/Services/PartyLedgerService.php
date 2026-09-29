@@ -108,4 +108,19 @@ class PartyLedgerService
 
         return $account;
     }
+
+    public function syncAirline(\App\Models\Airline $airline): ChartOfAccounts
+{
+    return $this->syncAccount(
+        existingAccountId: $airline->chart_of_account_id,
+        subHeadName: config('travel.airline_receivable_subhead_name', 'Accounts Receivable'),
+        accountType: 'airline',
+        name: $airline->name,
+        creditLimit: 0,
+        payables: 0,
+        receivables: 0,
+        address: null,
+        contactNo: null,
+    );
+}
 }
