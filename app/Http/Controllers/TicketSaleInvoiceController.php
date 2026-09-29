@@ -217,7 +217,7 @@ class TicketSaleInvoiceController extends Controller
         $pdf->AddPage();
 
         // ── Header: logo + company block ────────────────────────────
-        $logoPath = public_path(config('travel.company_logo_path', 'assets/img/aero-logo.png'));
+        $logoPath = public_path('assets/img/aero-logo.jpeg');
         if (file_exists($logoPath)) {
             $pdf->Image($logoPath, 12, 8, 26);
         } else {
