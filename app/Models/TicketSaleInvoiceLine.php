@@ -18,7 +18,8 @@ class TicketSaleInvoiceLine extends Model
         'total_amount', 'sales_agent_id', 'agent_commission_amount', 'agent_commission_percent',
         'status',
         'refund_date', 'refund_adjustment_date', 'refund_fare_amount',
-        'refund_tax_amount', 'refund_charges', 'refund_amount', 'refund_profit',
+        'refund_tax_amount', 'refund_charges', 'refund_deduction_supplier', 'refund_deduction_company',
+        'refund_amount', 'refund_profit',
         'void_date', 'void_deduction_supplier', 'void_deduction_company', 'void_total_deduction',
         'sort_order', 'created_by', 'updated_by',
     ];
@@ -44,6 +45,8 @@ class TicketSaleInvoiceLine extends Model
         'refund_fare_amount' => 'decimal:2',
         'refund_tax_amount' => 'decimal:2',
         'refund_charges' => 'decimal:2',
+        'refund_deduction_supplier' => 'decimal:2',
+        'refund_deduction_company' => 'decimal:2',
         'refund_amount' => 'decimal:2',
         'refund_profit' => 'decimal:2',
         'void_date' => 'date',
@@ -313,24 +316,66 @@ class TicketSaleInvoiceLine extends Model
      * figure keyed to the line's Supplier, not its Airline, and treats a
      * refunded ticket as 0.
      *
-     * Client fix: void and refund both leave the airline keeping a
-     * deduction/charge, and that has to actually post as payable —
-     * active: fare + tax + APT + PSF (same base-cost formula); voided:
-     * void_deduction_supplier (what the airline keeps on a void);
-     * refunded: refund_charges (what the airline keeps on a refund).
+     * Client fix: PSF is the company's own earned fee, never part of what
+     * the airline is owed — so unlike effectiveSupplierPayable() above,
+     * this deliberately excludes it: active: fare + tax + APT only (no
+     * PSF); voided: void_deduction_supplier (the airline's cut of the
+     * void deduction — void_deduction_company is the company's own cut,
+     * see effectivePsfIncome()); refunded: refund_deduction_supplier
+     * (the airline's cut of the refund deduction, same split).
      */
     public function effectiveAirlinePayable(): float
     {
         return match ($this->status) {
-            self::STATUS_REFUNDED => (float) ($this->refund_charges ?? 0),
+            self::STATUS_REFUNDED => (float) ($this->refund_deduction_supplier ?? 0),
             self::STATUS_VOIDED => (float) ($this->void_deduction_supplier ?? 0),
             default => round(
                 ((float) $this->fare_amount)
                 + ((float) $this->tax_amount)
-                + ((float) $this->apt_charges)
-                + ((float) $this->psf_amount),
+                + ((float) $this->apt_charges),
                 2
             ),
         };
+    }
+
+    /**
+     * The slice of effectiveReceivable() that's PSF — the company's own
+     * earned fee — rather than ordinary ticket-sale revenue. One shared
+     * concept across every ticket status, per client feedback ("PSF
+     * (company earning)"):
+     *   active:   the ticket's own psf_amount (its PSF % fee)
+     *   voided:   void_deduction_company (the company's cut of the void
+     *             deduction — the airline's cut, void_deduction_supplier,
+     *             is cost/payable instead, not income; see above)
+     *   refunded: refund_deduction_company (the company's cut of the
+     *             refund deduction), capped at what's actually still
+     *             receivable so this can never post more PSF income than
+     *             the ticket has left to give
+     *
+     * See effectiveTicketSalesIncome() for the complementary "everything
+     * else" slice — the two always sum back to effectiveReceivable().
+     */
+    public function effectivePsfIncome(): float
+    {
+        return match ($this->status) {
+            self::STATUS_REFUNDED => min(
+                (float) ($this->refund_deduction_company ?? 0),
+                $this->effectiveReceivable()
+            ),
+            self::STATUS_VOIDED => (float) ($this->void_deduction_company ?? 0),
+            default => (float) $this->psf_amount,
+        };
+    }
+
+    /**
+     * The non-PSF slice of effectiveReceivable() — ordinary ticket-sale
+     * revenue, posted to Ticket Sales Income. See effectivePsfIncome()
+     * for the PSF slice; the two always sum back to effectiveReceivable().
+     * Floored at 0 as a safety net (e.g. an unusually large discount)
+     * rather than ever posting negative revenue.
+     */
+    public function effectiveTicketSalesIncome(): float
+    {
+        return max(0.0, round($this->effectiveReceivable() - $this->effectivePsfIncome(), 2));
     }
 }

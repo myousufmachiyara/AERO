@@ -116,7 +116,9 @@
                 <div class="alert alert-info mb-0">
                     Refunded on {{ optional($line->refund_date)->format('d/m/Y') }} (adjustment {{ optional($line->refund_adjustment_date)->format('d/m/Y') }}) —
                     Fare {{ number_format($line->refund_fare_amount, 2) }}, Tax {{ number_format($line->refund_tax_amount, 2) }},
-                    Charges {{ number_format($line->refund_charges, 2) }}, Returned to customer {{ number_format($line->refund_amount, 2) }},
+                    Supplier deduction {{ number_format($line->refund_deduction_supplier, 2) }},
+                    {{ config('travel.company_name') }} deduction {{ number_format($line->refund_deduction_company, 2) }},
+                    Returned to customer {{ number_format($line->refund_amount, 2) }},
                     Retained profit {{ number_format($line->refund_profit, 2) }}.
                 </div>
                 @elseif($line->status === 'voided')
@@ -151,8 +153,12 @@
                                 <input type="number" step="0.01" min="0" name="refund_tax_amount" class="form-control" value="{{ $line->tax_amount }}" required>
                             </div>
                             <div class="col-md-2 mb-2">
-                                <label class="form-label">Refund Charges</label>
-                                <input type="number" step="0.01" min="0" name="refund_charges" class="form-control" value="0" required>
+                                <label class="form-label">Deduction by Supplier</label>
+                                <input type="number" step="0.01" min="0" name="refund_deduction_supplier" class="form-control" value="0" required>
+                            </div>
+                            <div class="col-md-2 mb-2">
+                                <label class="form-label">Deduction by {{ config('travel.company_name') }}</label>
+                                <input type="number" step="0.01" min="0" name="refund_deduction_company" class="form-control" value="0" required>
                             </div>
                         </div>
                         <small class="text-muted">Original fare/tax are pre-filled for reference — adjust for a partial refund. Refund amount and retained profit are calculated automatically.</small>

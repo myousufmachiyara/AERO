@@ -20,16 +20,24 @@ use Illuminate\Support\Facades\Log;
  *
  * Posting creates real double-entry Vouchers (so ledgers/trial balance/
  * party statements pick this up exactly like any other transaction):
- *   1. One voucher for the whole invoice: Dr Customer, Cr Ticket Sales
- *      Income, for what the customer is actually being charged (already
- *      net of any refund/void adjustments made on individual tickets).
+ *   1. Customer side — up to two vouchers, both Dr Customer, for what the
+ *      customer is actually being charged (already net of any refund/void
+ *      adjustments made on individual tickets), split by income type so
+ *      PSF is distinguishable from ordinary ticket-sale revenue:
+ *        a. Cr Ticket Sales Income — everything that isn't PSF. See
+ *           TicketSaleInvoiceLine::effectiveTicketSalesIncome().
+ *        b. Cr PSF Income — the PSF % fee on active tickets, plus the
+ *           deduction the company itself keeps on a voided or refunded
+ *           one (client's own term for both — "PSF (company earning)").
+ *           See TicketSaleInvoiceLine::effectivePsfIncome().
  *   2. Per distinct airline touched by this invoice, up to two vouchers,
  *      both landing on that same Airline ledger account so its balance
  *      nets automatically:
  *        a. Payable — Dr Ticket Cost, Cr Airline — what's actually owed
- *           to the airline: base cost (fare+tax+APT+PSF) on every active
- *           ticket, plus the deduction/charge the airline keeps on a
- *           voided or refunded one. See
+ *           to the airline: base cost (fare+tax+APT — deliberately
+ *           excluding PSF, which is the company's own fee, not the
+ *           airline's) on every active ticket, plus the airline's own
+ *           cut of the deduction on a voided or refunded one. See
  *           TicketSaleInvoiceLine::effectiveAirlinePayable().
  *        b. Receivable — Dr Airline, Cr Airline Commission Income — the
  *           commission earned on active tickets, net of WHT (WHT is
@@ -60,9 +68,10 @@ class TicketInvoicePostingService
         $lines = $invoice->lines()->get();
 
         DB::transaction(function () use ($invoice, $lines, $customer) {
-            $customerTotal = round($lines->sum(fn ($l) => $l->effectiveReceivable()), 2);
+            $ticketSalesTotal = round($lines->sum(fn ($l) => $l->effectiveTicketSalesIncome()), 2);
+            $psfIncomeTotal = round($lines->sum(fn ($l) => $l->effectivePsfIncome()), 2);
 
-            if ($customerTotal > 0.001) {
+            if ($ticketSalesTotal > 0.001) {
                 $incomeAccount = $this->systemAccount(
                     config('travel.ticket_sales_income_subhead_name'),
                     config('travel.ticket_sales_income_account_name')
@@ -73,7 +82,7 @@ class TicketInvoicePostingService
                     'date' => $invoice->effectiveAdjustmentDate()->format('Y-m-d'),
                     'ac_dr_sid' => $customer->chart_of_account_id,
                     'ac_cr_sid' => $incomeAccount->id,
-                    'amount' => $customerTotal,
+                    'amount' => $ticketSalesTotal,
                     'reference' => $invoice->invoice_no,
                     'description' => "Ticket Sale Invoice {$invoice->invoice_no} — customer receivable",
                 ]);
@@ -82,7 +91,31 @@ class TicketInvoicePostingService
                     'ticket_sale_invoice_id' => $invoice->id,
                     'voucher_id' => $voucher->id,
                     'entry_type' => TicketInvoiceLedgerEntry::TYPE_CUSTOMER,
-                    'amount' => $customerTotal,
+                    'amount' => $ticketSalesTotal,
+                ]);
+            }
+
+            if ($psfIncomeTotal > 0.001) {
+                $psfAccount = $this->systemAccount(
+                    config('travel.psf_income_subhead_name'),
+                    config('travel.psf_income_account_name')
+                );
+
+                $voucher = Voucher::create([
+                    'voucher_type' => 'journal',
+                    'date' => $invoice->effectiveAdjustmentDate()->format('Y-m-d'),
+                    'ac_dr_sid' => $customer->chart_of_account_id,
+                    'ac_cr_sid' => $psfAccount->id,
+                    'amount' => $psfIncomeTotal,
+                    'reference' => $invoice->invoice_no,
+                    'description' => "Ticket Sale Invoice {$invoice->invoice_no} — PSF (company earning)",
+                ]);
+
+                TicketInvoiceLedgerEntry::create([
+                    'ticket_sale_invoice_id' => $invoice->id,
+                    'voucher_id' => $voucher->id,
+                    'entry_type' => TicketInvoiceLedgerEntry::TYPE_CUSTOMER_PSF,
+                    'amount' => $psfIncomeTotal,
                 ]);
             }
 

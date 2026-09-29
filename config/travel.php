@@ -52,6 +52,16 @@ return [
     'ticket_cost_expense_subhead_name' => env('TRAVEL_TICKET_COST_SUBHEAD', 'Cost of Goods Sold'),
     'ticket_cost_expense_account_name' => 'Ticket Cost',
 
+    // PSF (Passenger Service Fee) income — the company's own earned fee,
+    // never part of what's payable to the airline. One shared account for
+    // both: the PSF % charged on an active ticket, and the "deduction by
+    // company" portion the company keeps on a void or refund (client's
+    // own term for both — "PSF (company earning)"). Posted separately
+    // from Ticket Sales Income rather than lumped into it, so the two are
+    // distinguishable in reporting.
+    'psf_income_subhead_name' => env('TRAVEL_PSF_INCOME_SUBHEAD', 'Sales'),
+    'psf_income_account_name' => 'PSF Income',
+
     // 13-digit ticket number format: 3 (airline code) - 4 - 3 - 3.
     'ticket_no_segments' => [3, 4, 3, 3],
 ];

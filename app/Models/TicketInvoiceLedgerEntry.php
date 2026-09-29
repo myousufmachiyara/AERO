@@ -15,6 +15,7 @@ class TicketInvoiceLedgerEntry extends Model
     ];
 
     public const TYPE_CUSTOMER = 'customer_sale';
+    public const TYPE_CUSTOMER_PSF = 'customer_psf_income';
     public const TYPE_AIRLINE_COMMISSION = 'airline_commission';
     public const TYPE_AIRLINE_PAYABLE = 'airline_payable';
 

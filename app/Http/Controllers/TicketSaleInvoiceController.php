@@ -261,10 +261,17 @@ class TicketSaleInvoiceController extends Controller
             'refund_adjustment_date' => 'nullable|date',
             'refund_fare_amount' => 'required|numeric|min:0',
             'refund_tax_amount' => 'required|numeric|min:0',
-            'refund_charges' => 'required|numeric|min:0',
+            'refund_deduction_supplier' => 'required|numeric|min:0',
+            'refund_deduction_company' => 'required|numeric|min:0',
         ]);
 
-        $refundAmount = round($validated['refund_fare_amount'] + $validated['refund_tax_amount'] - $validated['refund_charges'], 2);
+        // Client fix: same two-way split as Void — the deduction kept by
+        // the airline/supplier vs. the deduction kept by the company
+        // itself (posted separately, see TicketInvoicePostingService).
+        // refund_charges is kept as their sum so refund_amount/
+        // refund_profit's formulas don't need to change.
+        $refundCharges = round($validated['refund_deduction_supplier'] + $validated['refund_deduction_company'], 2);
+        $refundAmount = round($validated['refund_fare_amount'] + $validated['refund_tax_amount'] - $refundCharges, 2);
         $refundProfit = round(((float) $line->total_amount) - $refundAmount, 2);
 
         DB::beginTransaction();
@@ -275,7 +282,9 @@ class TicketSaleInvoiceController extends Controller
                 'refund_adjustment_date' => $validated['refund_adjustment_date'] ?? $validated['refund_date'],
                 'refund_fare_amount' => $validated['refund_fare_amount'],
                 'refund_tax_amount' => $validated['refund_tax_amount'],
-                'refund_charges' => $validated['refund_charges'],
+                'refund_deduction_supplier' => $validated['refund_deduction_supplier'],
+                'refund_deduction_company' => $validated['refund_deduction_company'],
+                'refund_charges' => $refundCharges,
                 'refund_amount' => $refundAmount,
                 'refund_profit' => $refundProfit,
                 'updated_by' => auth()->id(),
