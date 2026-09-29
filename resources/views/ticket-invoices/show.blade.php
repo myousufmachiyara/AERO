@@ -68,8 +68,8 @@
                     </span>
                     @if($line->isActive() && $invoice->isPending())
                     @can('ticket_invoices.edit')
-                    <button type="button" class="btn btn-sm btn-outline-info" onclick="toggleRow('refund-{{ $line->id }}')">Refund</button>
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="toggleRow('void-{{ $line->id }}')">Void</button>
+                    <button type="button" class="btn btn-sm btn-outline-info" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Refund</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Void</button>
                     @endcan
                     @endif
                 </div>
@@ -158,7 +158,7 @@
                         <small class="text-muted">Original fare/tax are pre-filled for reference — adjust for a partial refund. Refund amount and retained profit are calculated automatically.</small>
                         <div class="mt-2">
                             <button type="submit" class="btn btn-info btn-sm" onclick="return confirm('Refund this ticket? This cannot be undone.');">Confirm Refund</button>
-                            <button type="button" class="btn btn-default btn-sm" onclick="toggleRow('refund-{{ $line->id }}')">Cancel</button>
+                            <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Cancel</button>
                         </div>
                     </form>
                 </div>
@@ -183,7 +183,7 @@
                         <small class="text-muted">All other amounts on this ticket become 0 — only the total deduction remains receivable from the customer.</small>
                         <div class="mt-2">
                             <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Void this ticket? This cannot be undone.');">Confirm Void</button>
-                            <button type="button" class="btn btn-default btn-sm" onclick="toggleRow('void-{{ $line->id }}')">Cancel</button>
+                            <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Cancel</button>
                         </div>
                     </form>
                     @endif
@@ -211,8 +211,16 @@
 </div>
 
 <script>
-    function toggleRow(id) {
+    // Namespaced (not a generic global "toggleRow") so this can't be
+    // silently shadowed by a same-named helper elsewhere in a larger
+    // app — that collision is the #1 cause of "the button does nothing,
+    // no error shown" on a page like this.
+    function ticketInvoiceToggleRow(id) {
         const el = document.getElementById(id);
+        if (!el) {
+            console.error('[ticket-invoices/show] No element with id="' + id + '" — the Refund/Void panel markup is missing or its id changed.');
+            return;
+        }
         el.style.display = el.style.display === 'none' ? 'block' : 'none';
     }
 </script>
