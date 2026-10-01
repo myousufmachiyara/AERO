@@ -171,6 +171,7 @@
         <button type="button" class="btn btn-sm btn-outline-primary" id="add-ticket-btn"><i class="fa fa-plus"></i> Add Ticket</button>
     </header>
     <div class="card-body">
+        <p class="text-muted small mb-2">Enter the full 13-digit Ticket # (e.g. <code>220-1234-567-890</code>) on the <strong>first</strong> ticket — every other row auto-fills from it, in sequence, once it's complete. Rows added before ticket #1 is finished fill in automatically as soon as it is.</p>
         <div class="table-scroll">
         <table class="table table-bordered table-sm mb-0" id="tickets-table">
             <thead>
@@ -414,10 +415,16 @@
     }
 
     function reindexRows() {
+        // Names are keyed off the row's current visual POSITION (i), not
+        // row.dataset.idx (a creation-order id) — using dataset.idx here
+        // used to leave gaps in the submitted lines[] keys after a row in
+        // the middle was removed (e.g. lines[0], lines[1], lines[3] with
+        // no lines[2]), which is harmless to PHP's array handling but is
+        // fragile for no benefit, so this always renumbers 0..N-1.
         wrap.querySelectorAll('.ticket-row').forEach((row, i) => {
             row.querySelector('.ticket-index-label').textContent = i + 1;
             row.querySelectorAll('[data-name]').forEach(el => {
-                el.name = 'lines[' + row.dataset.idx + '][' + el.dataset.name + ']';
+                el.name = 'lines[' + i + '][' + el.dataset.name + ']';
             });
         });
     }
@@ -481,12 +488,20 @@
             syncRowFromMaster(row);
         }
 
+        // Auto-numbering only reads/reacts off the FIRST row — airline
+        // detection and the auto-fill of later rows are both keyed off
+        // ticket #1, same as Master Details is keyed off ticket #1.
+        row.querySelector('.f-ticket-no').addEventListener('input', e => {
+            e.target.setCustomValidity(''); // clear any stale "wrong length" flag from a previous submit attempt
+            if (row === wrap.querySelector('.ticket-row')) {
+                autoFillBlankTicketNumbers();
+            }
+        });
         row.querySelector('.f-ticket-no').addEventListener('blur', e => {
             e.target.value = formatTicketNo(e.target.value);
-            // Airline auto-detect only matters off the FIRST ticket — the
-            // airline is a shared/master field, not per-passenger.
             if (row === wrap.querySelector('.ticket-row')) {
                 detectAirlineFromFirstTicket();
+                autoFillBlankTicketNumbers();
             }
         });
 
@@ -499,6 +514,26 @@
         wrap.appendChild(row);
         reindexRows();
         return row;
+    }
+
+    // Fills in ticket # for every row that's still blank, sequencing from
+    // the first ticket's number (position in the grid = offset). This is
+    // the SAME auto-numbering whether a blank row already existed before
+    // ticket #1 was finished (e.g. the user clicked "Add Ticket" a few
+    // times first, then typed ticket #1 — this fills them in retroactively
+    // once #1 reaches 13 digits) or the row is added after #1 is already
+    // complete. Never touches a row the user has already typed something
+    // into — only genuinely empty ticket # fields get auto-filled.
+    function autoFillBlankTicketNumbers() {
+        const baseDigits = firstRowTicketDigits();
+        if (baseDigits.length !== 13) return;
+        wrap.querySelectorAll('.ticket-row').forEach((row, position) => {
+            if (position === 0) return;
+            const input = row.querySelector('.f-ticket-no');
+            if (digitsOf(input.value).length === 0) {
+                input.value = incrementTicketNo(baseDigits, position);
+            }
+        });
     }
 
     function detectAirlineFromFirstTicket() {
@@ -577,10 +612,12 @@
     document.getElementById('m-trip-type').addEventListener('change', () => { applyTripType(); recalcMaster(); syncAllRowsFromMaster(); });
 
     document.getElementById('add-ticket-btn').addEventListener('click', () => {
-        const baseDigits = firstRowTicketDigits();
-        const newRowPosition = wrap.querySelectorAll('.ticket-row').length; // 0-based position of the row about to be added
-        const autoTicketNo = baseDigits.length === 13 ? incrementTicketNo(baseDigits, newRowPosition) : '';
-        addTicketRow({ ticket_no: autoTicketNo });
+        addTicketRow({});
+        // Covers both orders: ticket #1 already complete when this row is
+        // added (fills it immediately), or still incomplete (this row
+        // stays blank for now and gets filled in later, retroactively, by
+        // the listeners on ticket #1 above once it reaches 13 digits).
+        autoFillBlankTicketNumbers();
         recalcGrandTotal();
     });
 
@@ -597,5 +634,38 @@
     }
 
     recalcMaster();
+
+    // Catch an incomplete Ticket # before it ever reaches the server —
+    // previously this only surfaced as a "must be exactly 13 digits"
+    // error after a full round-trip, on whichever rows happened to be
+    // incomplete, with no indication in the browser of which field or
+    // why. Blank ticket # is still allowed (the server treats it as
+    // "not entered yet"); only a PARTIAL one (something typed, but not
+    // 13 digits) blocks submission here.
+    const formEl = wrap.closest('form');
+    if (formEl) {
+        formEl.addEventListener('submit', (e) => {
+            let firstInvalid = null;
+            wrap.querySelectorAll('.ticket-row').forEach((row, i) => {
+                const ticketInput = row.querySelector('.f-ticket-no');
+                const paxName = row.querySelector('.f-pax-name').value.trim();
+                const digitCount = digitsOf(ticketInput.value).length;
+                if (paxName && digitCount > 0 && digitCount !== 13) {
+                    ticketInput.setCustomValidity(
+                        'Ticket row ' + (i + 1) + ': this Ticket # has ' + digitCount + ' digit(s), needs exactly 13 ' +
+                        '(format 220-1234-567-890). Finish typing it, or clear it and let it auto-fill from ticket #1.'
+                    );
+                    if (!firstInvalid) firstInvalid = ticketInput;
+                } else {
+                    ticketInput.setCustomValidity('');
+                }
+            });
+            if (firstInvalid) {
+                e.preventDefault();
+                firstInvalid.reportValidity();
+                firstInvalid.focus();
+            }
+        });
+    }
 })();
 </script>
