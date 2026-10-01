@@ -171,7 +171,7 @@
         <button type="button" class="btn btn-sm btn-outline-primary" id="add-ticket-btn"><i class="fa fa-plus"></i> Add Ticket</button>
     </header>
     <div class="card-body">
-        <p class="text-muted small mb-2">Enter the full 13-digit Ticket # (e.g. <code>220-1234-567-890</code>) on the <strong>first</strong> ticket — every other row auto-fills from it, in sequence, once it's complete. Rows added before ticket #1 is finished fill in automatically as soon as it is.</p>
+        <p class="text-muted small mb-2">Enter the full 13-digit Ticket # (e.g. <code>220-1234-567-890</code>) on the <strong>first</strong> ticket — every other row auto-fills from it, in sequence (084-1121-222-<strong>122</strong>, 123, 124, ...). Works regardless of order: rows added before ticket #1 is finished fill in as soon as it is, and correcting ticket #1 re-numbers every row that hasn't been typed into by hand.</p>
         <div class="table-scroll">
         <table class="table table-bordered table-sm mb-0" id="tickets-table">
             <thead>
@@ -491,17 +491,27 @@
         // Auto-numbering only reads/reacts off the FIRST row — airline
         // detection and the auto-fill of later rows are both keyed off
         // ticket #1, same as Master Details is keyed off ticket #1.
+        //
+        // Any row's ticket # field is "auto" (dataset.autoFilled = '1')
+        // until the user types into it directly, at which point this
+        // listener marks it manual and auto-sequencing leaves it alone
+        // from then on. This is what makes correcting ticket #1 actually
+        // cascade to #2, #3, ... instead of only filling them the first
+        // time: a row that's still blank OR still auto-filled gets
+        // overwritten every time #1 changes; a row the user typed into
+        // themselves never gets touched again.
         row.querySelector('.f-ticket-no').addEventListener('input', e => {
             e.target.setCustomValidity(''); // clear any stale "wrong length" flag from a previous submit attempt
+            e.target.dataset.autoFilled = '';
             if (row === wrap.querySelector('.ticket-row')) {
-                autoFillBlankTicketNumbers();
+                autoSequenceTicketNumbers();
             }
         });
         row.querySelector('.f-ticket-no').addEventListener('blur', e => {
             e.target.value = formatTicketNo(e.target.value);
             if (row === wrap.querySelector('.ticket-row')) {
                 detectAirlineFromFirstTicket();
-                autoFillBlankTicketNumbers();
+                autoSequenceTicketNumbers();
             }
         });
 
@@ -516,22 +526,27 @@
         return row;
     }
 
-    // Fills in ticket # for every row that's still blank, sequencing from
-    // the first ticket's number (position in the grid = offset). This is
-    // the SAME auto-numbering whether a blank row already existed before
-    // ticket #1 was finished (e.g. the user clicked "Add Ticket" a few
-    // times first, then typed ticket #1 — this fills them in retroactively
-    // once #1 reaches 13 digits) or the row is added after #1 is already
-    // complete. Never touches a row the user has already typed something
-    // into — only genuinely empty ticket # fields get auto-filled.
-    function autoFillBlankTicketNumbers() {
+    // Keeps every row's ticket # sequenced off the first ticket's number
+    // (position in the grid = offset: #1 + 1 -> row 2, #1 + 2 -> row 3,
+    // ...). Runs every time ticket #1 changes, not just once, so:
+    //   - rows added before #1 was finished fill in retroactively the
+    //     moment #1 reaches 13 digits;
+    //   - rows added after #1 is already complete get numbered right away;
+    //   - correcting a wrong ticket #1 re-numbers every row that's still
+    //     on an auto-generated value, cascading the fix forward.
+    // A row the user has typed into directly is marked "manual" (see the
+    // 'input' listener in addTicketRow, which clears dataset.autoFilled)
+    // and is never touched here again, auto-generated or not.
+    function autoSequenceTicketNumbers() {
         const baseDigits = firstRowTicketDigits();
         if (baseDigits.length !== 13) return;
         wrap.querySelectorAll('.ticket-row').forEach((row, position) => {
             if (position === 0) return;
             const input = row.querySelector('.f-ticket-no');
-            if (digitsOf(input.value).length === 0) {
+            const isBlank = digitsOf(input.value).length === 0;
+            if (isBlank || input.dataset.autoFilled === '1') {
                 input.value = incrementTicketNo(baseDigits, position);
+                input.dataset.autoFilled = '1';
             }
         });
     }
@@ -617,7 +632,7 @@
         // added (fills it immediately), or still incomplete (this row
         // stays blank for now and gets filled in later, retroactively, by
         // the listeners on ticket #1 above once it reaches 13 digits).
-        autoFillBlankTicketNumbers();
+        autoSequenceTicketNumbers();
         recalcGrandTotal();
     });
 

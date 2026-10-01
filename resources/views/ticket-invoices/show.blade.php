@@ -2,6 +2,33 @@
 
 @section('title', 'Sale Invoice — ' . $invoice->invoice_no)
 
+@php
+    // Same "shared across every ticket" field list the create/edit form
+    // uses (see _form.blade.php's SHARED_FIELD_IDS) — kept in sync here so
+    // the "tickets don't all match" warning below fires under exactly the
+    // same condition it would on the form.
+    $sharedFields = [
+        'supplier_id', 'airline_id', 'pnr', 'trip_type',
+        'leg1_from', 'leg1_stay', 'leg1_to', 'leg2_from', 'leg2_stay', 'leg2_to',
+        'fare_amount', 'tax_amount', 'apt_percent', 'commission_percent', 'wht_percent',
+        'psf_percent', 'psf_amount', 'psf_basis', 'psf_input_mode',
+        'discount_percent', 'discount_amount', 'discount_input_mode',
+        'sales_agent_id', 'agent_commission_percent',
+    ];
+    $firstLine = $invoice->lines->first();
+    $linesDiffer = false;
+    if ($firstLine && $invoice->lines->count() > 1) {
+        foreach ($invoice->lines->slice(1) as $otherLine) {
+            foreach ($sharedFields as $field) {
+                if ((string) $otherLine->{$field} !== (string) $firstLine->{$field}) {
+                    $linesDiffer = true;
+                    break 2;
+                }
+            }
+        }
+    }
+@endphp
+
 @section('content')
 <div class="row">
     <div class="col-12">
@@ -58,145 +85,193 @@
             </div>
         </section>
 
-        @foreach($invoice->lines as $line)
+        @if($firstLine)
         <section class="card mb-3">
-            <header class="card-header d-flex justify-content-between align-items-center">
-                <strong>Ticket #{{ $loop->iteration }} — {{ $line->pax_name }}</strong>
-                <div>
-                    <span class="badge {{ ['active' => 'bg-primary', 'refunded' => 'bg-info', 'voided' => 'bg-secondary'][$line->status] ?? 'bg-secondary' }}">
-                        {{ ucfirst($line->status) }}
-                    </span>
-                    @if($line->isActive() && $invoice->isPending())
-                    @can('ticket_invoices.edit')
-                    <button type="button" class="btn btn-sm btn-outline-info" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Refund</button>
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Void</button>
-                    @endcan
-                    @endif
-                </div>
-            </header>
+            <header class="card-header"><strong>Master Details</strong> <span class="text-muted small">(shared by every ticket on this invoice)</span></header>
             <div class="card-body">
-                <div class="row mb-2">
-                    <div class="col-md-2"><strong>Pax Type:</strong> {{ ucfirst($line->pax_type) }}</div>
-                    <div class="col-md-2"><strong>PNR:</strong> {{ $line->pnr ?: '—' }}</div>
-                    <div class="col-md-2"><strong>Ticket #:</strong> {{ $line->ticket_no ?: '—' }}</div>
-                    <div class="col-md-2"><strong>Airline:</strong> {{ $line->airline->name ?? '—' }}</div>
-                    <div class="col-md-2"><strong>Supplier:</strong> {{ $line->supplier->name ?? '—' }}</div>
-                    <div class="col-md-2"><strong>Cities:</strong> {{ $line->citiesLabel() ?: '—' }}</div>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-md-2"><strong>Fare:</strong> {{ number_format($line->fare_amount, 2) }}</div>
-                    <div class="col-md-2"><strong>Tax:</strong> {{ number_format($line->tax_amount, 2) }}</div>
-                    <div class="col-md-2"><strong>APT %:</strong> {{ number_format($line->apt_percent, 2) }}%</div>
-                    <div class="col-md-2"><strong>APT:</strong> {{ number_format($line->apt_charges, 2) }}</div>
-                    <div class="col-md-2"><strong>Comm %:</strong> {{ number_format($line->commission_percent, 2) }}</div>
-                    <div class="col-md-2"><strong>Comm Amt:</strong> {{ number_format($line->commission_amount, 2) }}</div>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-md-2"><strong>WHT % (on comm):</strong> {{ number_format($line->wht_percent, 2) }}%</div>
-                    <div class="col-md-2"><strong>WHT:</strong> {{ number_format($line->wht_amount, 2) }}</div>
-                    <div class="col-md-2">
-                        <strong>PSF %:</strong> {{ number_format($line->psf_percent, 2) }}%
-                        <small class="text-muted">({{ $line->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }}{{ $line->psf_input_mode === 'amount' ? ', from amount' : '' }})</small>
-                    </div>
-                    <div class="col-md-2"><strong>PSF:</strong> {{ number_format($line->psf_amount, 2) }}</div>
-                    <div class="col-md-2">
-                        <strong>Discount %:</strong> {{ number_format($line->discount_percent, 2) }}%
-                        <small class="text-muted">{{ $line->discount_input_mode === 'amount' ? '(from amount)' : '' }}</small>
-                    </div>
-                    <div class="col-md-2"><strong>Discount:</strong> {{ number_format($line->discount_amount, 2) }}</div>
-                    <div class="col-md-2"><strong>Agent:</strong> {{ $line->salesAgent->name ?? '—' }}</div>
-                    <div class="col-md-2"><strong>Agent Comm %:</strong> {{ number_format($line->agent_commission_percent, 2) }}%</div>
-                </div>
-                <div class="row mb-2">
-                    <div class="col-md-2"><strong>Agent Comm:</strong> {{ number_format($line->agent_commission_amount, 2) }}</div>
-                    <div class="col-md-10 text-end"><strong>Amount Receivable:</strong> <span class="fs-5">{{ number_format($line->effectiveReceivable(), 2) }}</span></div>
-                </div>
-
-                @if($line->status === 'refunded')
-                <div class="alert alert-info mb-0">
-                    Refunded on {{ optional($line->refund_date)->format('d/m/Y') }} (adjustment {{ optional($line->refund_adjustment_date)->format('d/m/Y') }}) —
-                    Fare {{ number_format($line->refund_fare_amount, 2) }}, Tax {{ number_format($line->refund_tax_amount, 2) }},
-                    Supplier deduction {{ number_format($line->refund_deduction_supplier, 2) }},
-                    {{ config('travel.company_name') }} deduction {{ number_format($line->refund_deduction_company, 2) }},
-                    Returned to customer {{ number_format($line->refund_amount, 2) }},
-                    Retained profit {{ number_format($line->refund_profit, 2) }}.
-                </div>
-                @elseif($line->status === 'voided')
-                <div class="alert alert-secondary mb-0">
-                    Voided on {{ optional($line->void_date)->format('d/m/Y') }} —
-                    Supplier deduction {{ number_format($line->void_deduction_supplier, 2) }},
-                    {{ config('travel.company_name') }} deduction {{ number_format($line->void_deduction_company, 2) }},
-                    Total receivable from customer {{ number_format($line->void_total_deduction, 2) }}.
+                @if($linesDiffer)
+                <div class="alert alert-warning">
+                    These tickets were entered with different supplier/PNR/cities/fare/charge values on one or more rows
+                    (most likely created before this invoice used shared Master Details). The figures below are from the
+                    <strong>first</strong> ticket only — check each ticket's own numbers in the Amount Receivable column,
+                    and open Edit to see every row's actual values.
                 </div>
                 @endif
 
-                @if($line->isActive() && $invoice->isPending())
-                <div id="refund-{{ $line->id }}" class="mt-3 p-3 border rounded" style="display:none;">
-                    <h6>Refund Ticket {{ $line->ticket_no }}</h6>
-                    <form action="{{ route('ticket_invoices.lines.refund', [$invoice->id, $line->id]) }}" method="POST">
-                        @csrf
-                        <div class="row">
-                            <div class="col-md-3 mb-2">
-                                <label class="form-label">Refund Date <span class="text-danger">*</span></label>
-                                <input type="date" name="refund_date" class="form-control" value="{{ now()->format('Y-m-d') }}" required>
-                            </div>
-                            <div class="col-md-3 mb-2">
-                                <label class="form-label">Refund Adjustment Date</label>
-                                <input type="date" name="refund_adjustment_date" class="form-control">
-                            </div>
-                            <div class="col-md-2 mb-2">
-                                <label class="form-label">Fare Amount</label>
-                                <input type="number" step="0.01" min="0" name="refund_fare_amount" class="form-control" value="{{ $line->fare_amount }}" required>
-                            </div>
-                            <div class="col-md-2 mb-2">
-                                <label class="form-label">Tax Amount</label>
-                                <input type="number" step="0.01" min="0" name="refund_tax_amount" class="form-control" value="{{ $line->tax_amount }}" required>
-                            </div>
-                            <div class="col-md-2 mb-2">
-                                <label class="form-label">Deduction by Supplier</label>
-                                <input type="number" step="0.01" min="0" name="refund_deduction_supplier" class="form-control" value="0" required>
-                            </div>
-                            <div class="col-md-2 mb-2">
-                                <label class="form-label">Deduction by {{ config('travel.company_name') }}</label>
-                                <input type="number" step="0.01" min="0" name="refund_deduction_company" class="form-control" value="0" required>
-                            </div>
-                        </div>
-                        <small class="text-muted">Original fare/tax are pre-filled for reference — adjust for a partial refund. Refund amount and retained profit are calculated automatically.</small>
-                        <div class="mt-2">
-                            <button type="submit" class="btn btn-info btn-sm" onclick="return confirm('Refund this ticket? This cannot be undone.');">Confirm Refund</button>
-                            <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Cancel</button>
-                        </div>
-                    </form>
+                <div class="row mb-2">
+                    <div class="col-md-2"><strong>Supplier:</strong> {{ $firstLine->supplier->name ?? '—' }}</div>
+                    <div class="col-md-2"><strong>Airline:</strong> {{ $firstLine->airline->name ?? '—' }}</div>
+                    <div class="col-md-2"><strong>PNR:</strong> {{ $firstLine->pnr ?: '—' }}</div>
+                    <div class="col-md-2"><strong>Trip Type:</strong> {{ $firstLine->trip_type === 'return' ? 'Return' : 'One Way' }}</div>
+                    <div class="col-md-4"><strong>Cities:</strong> {{ $firstLine->citiesLabel() ?: '—' }}</div>
                 </div>
-
-                <div id="void-{{ $line->id }}" class="mt-3 p-3 border rounded" style="display:none;">
-                    <h6>Void Ticket {{ $line->ticket_no }}</h6>
-                    @if(!now()->isSameDay($invoice->invoice_date))
-                    <div class="alert alert-warning mb-0">Tickets can only be voided on the same day they were issued ({{ $invoice->invoice_date->format('d/m/Y') }}). Use Refund instead.</div>
-                    @else
-                    <form action="{{ route('ticket_invoices.lines.void', [$invoice->id, $line->id]) }}" method="POST">
-                        @csrf
-                        <div class="row">
-                            <div class="col-md-4 mb-2">
-                                <label class="form-label">Deduction by Supplier</label>
-                                <input type="number" step="0.01" min="0" name="void_deduction_supplier" class="form-control" value="0" required>
-                            </div>
-                            <div class="col-md-4 mb-2">
-                                <label class="form-label">Deduction by {{ config('travel.company_name') }}</label>
-                                <input type="number" step="0.01" min="0" name="void_deduction_company" class="form-control" value="0" required>
-                            </div>
-                        </div>
-                        <small class="text-muted">All other amounts on this ticket become 0 — only the total deduction remains receivable from the customer.</small>
-                        <div class="mt-2">
-                            <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Void this ticket? This cannot be undone.');">Confirm Void</button>
-                            <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Cancel</button>
-                        </div>
-                    </form>
-                    @endif
+                <div class="row mb-2">
+                    <div class="col-md-2"><strong>Fare:</strong> {{ number_format($firstLine->fare_amount, 2) }}</div>
+                    <div class="col-md-2"><strong>Tax:</strong> {{ number_format($firstLine->tax_amount, 2) }}</div>
+                    <div class="col-md-2"><strong>APT %:</strong> {{ number_format($firstLine->apt_percent, 2) }}%</div>
+                    <div class="col-md-2"><strong>APT:</strong> {{ number_format($firstLine->apt_charges, 2) }}</div>
+                    <div class="col-md-2"><strong>Comm %:</strong> {{ number_format($firstLine->commission_percent, 2) }}</div>
+                    <div class="col-md-2"><strong>Comm Amt:</strong> {{ number_format($firstLine->commission_amount, 2) }}</div>
                 </div>
-                @endif
+                <div class="row mb-2">
+                    <div class="col-md-2"><strong>WHT % (on comm):</strong> {{ number_format($firstLine->wht_percent, 2) }}%</div>
+                    <div class="col-md-2"><strong>WHT:</strong> {{ number_format($firstLine->wht_amount, 2) }}</div>
+                    <div class="col-md-2">
+                        <strong>PSF %:</strong> {{ number_format($firstLine->psf_percent, 2) }}%
+                        <small class="text-muted">({{ $firstLine->psf_basis === 'total' ? 'fare+tax+apt' : 'fare' }}{{ $firstLine->psf_input_mode === 'amount' ? ', from amount' : '' }})</small>
+                    </div>
+                    <div class="col-md-2"><strong>PSF:</strong> {{ number_format($firstLine->psf_amount, 2) }}</div>
+                    <div class="col-md-2">
+                        <strong>Discount %:</strong> {{ number_format($firstLine->discount_percent, 2) }}%
+                        <small class="text-muted">{{ $firstLine->discount_input_mode === 'amount' ? '(from amount)' : '' }}</small>
+                    </div>
+                    <div class="col-md-2"><strong>Discount:</strong> {{ number_format($firstLine->discount_amount, 2) }}</div>
+                </div>
+                <div class="row">
+                    <div class="col-md-2"><strong>Sales Agent:</strong> {{ $firstLine->salesAgent->name ?? '—' }}</div>
+                    <div class="col-md-2"><strong>Agent Comm %:</strong> {{ number_format($firstLine->agent_commission_percent, 2) }}%</div>
+                    <div class="col-md-2"><strong>Agent Comm:</strong> {{ number_format($firstLine->agent_commission_amount, 2) }}</div>
+                    <div class="col-md-6 text-end"><strong>Per-Ticket Total:</strong> <span class="fs-5">{{ number_format($firstLine->total_amount, 2) }}</span></div>
+                </div>
             </div>
         </section>
+        @endif
+
+        <section class="card mb-3">
+            <header class="card-header"><strong>Tickets</strong> <span class="text-muted small">({{ $invoice->lines->count() }})</span></header>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Passenger Name</th>
+                            <th>Passenger Type</th>
+                            <th>Ticket #</th>
+                            <th>Status</th>
+                            <th class="text-end">Amount Receivable</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($invoice->lines as $line)
+                        <tr>
+                            <td>{{ $loop->iteration }}</td>
+                            <td>{{ $line->pax_name }}</td>
+                            <td>{{ ucfirst($line->pax_type) }}</td>
+                            <td>{{ $line->ticket_no ?: '—' }}</td>
+                            <td>
+                                <span class="badge {{ ['active' => 'bg-primary', 'refunded' => 'bg-info', 'voided' => 'bg-secondary'][$line->status] ?? 'bg-secondary' }}">
+                                    {{ ucfirst($line->status) }}
+                                </span>
+                            </td>
+                            <td class="text-end">{{ number_format($line->effectiveReceivable(), 2) }}</td>
+                            <td class="text-end">
+                                @if($line->isActive() && $invoice->isPending())
+                                @can('ticket_invoices.edit')
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Refund</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Void</button>
+                                @endcan
+                                @endif
+                            </td>
+                        </tr>
+                        @if($line->status === 'refunded' || $line->status === 'voided')
+                        <tr>
+                            <td></td>
+                            <td colspan="6" class="pb-2">
+                                @if($line->status === 'refunded')
+                                <div class="alert alert-info mb-0 py-2">
+                                    Refunded on {{ optional($line->refund_date)->format('d/m/Y') }} (adjustment {{ optional($line->refund_adjustment_date)->format('d/m/Y') }}) —
+                                    Fare {{ number_format($line->refund_fare_amount, 2) }}, Tax {{ number_format($line->refund_tax_amount, 2) }},
+                                    Supplier deduction {{ number_format($line->refund_deduction_supplier, 2) }},
+                                    {{ config('travel.company_name') }} deduction {{ number_format($line->refund_deduction_company, 2) }},
+                                    Returned to customer {{ number_format($line->refund_amount, 2) }},
+                                    Retained profit {{ number_format($line->refund_profit, 2) }}.
+                                </div>
+                                @else
+                                <div class="alert alert-secondary mb-0 py-2">
+                                    Voided on {{ optional($line->void_date)->format('d/m/Y') }} —
+                                    Supplier deduction {{ number_format($line->void_deduction_supplier, 2) }},
+                                    {{ config('travel.company_name') }} deduction {{ number_format($line->void_deduction_company, 2) }},
+                                    Total receivable from customer {{ number_format($line->void_total_deduction, 2) }}.
+                                </div>
+                                @endif
+                            </td>
+                        </tr>
+                        @endif
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        @foreach($invoice->lines as $line)
+        @if($line->isActive() && $invoice->isPending())
+        @can('ticket_invoices.edit')
+        <div id="refund-{{ $line->id }}" class="card mb-3 p-3" style="display:none;">
+            <h6>Refund Ticket {{ $line->ticket_no }} — {{ $line->pax_name }}</h6>
+            <form action="{{ route('ticket_invoices.lines.refund', [$invoice->id, $line->id]) }}" method="POST">
+                @csrf
+                <div class="row">
+                    <div class="col-md-3 mb-2">
+                        <label class="form-label">Refund Date <span class="text-danger">*</span></label>
+                        <input type="date" name="refund_date" class="form-control" value="{{ now()->format('Y-m-d') }}" required>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <label class="form-label">Refund Adjustment Date</label>
+                        <input type="date" name="refund_adjustment_date" class="form-control">
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Fare Amount</label>
+                        <input type="number" step="0.01" min="0" name="refund_fare_amount" class="form-control" value="{{ $line->fare_amount }}" required>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Tax Amount</label>
+                        <input type="number" step="0.01" min="0" name="refund_tax_amount" class="form-control" value="{{ $line->tax_amount }}" required>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Deduction by Supplier</label>
+                        <input type="number" step="0.01" min="0" name="refund_deduction_supplier" class="form-control" value="0" required>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Deduction by {{ config('travel.company_name') }}</label>
+                        <input type="number" step="0.01" min="0" name="refund_deduction_company" class="form-control" value="0" required>
+                    </div>
+                </div>
+                <small class="text-muted">Original fare/tax are pre-filled for reference — adjust for a partial refund. Refund amount and retained profit are calculated automatically.</small>
+                <div class="mt-2">
+                    <button type="submit" class="btn btn-info btn-sm" onclick="return confirm('Refund this ticket? This cannot be undone.');">Confirm Refund</button>
+                    <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Cancel</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="void-{{ $line->id }}" class="card mb-3 p-3" style="display:none;">
+            <h6>Void Ticket {{ $line->ticket_no }} — {{ $line->pax_name }}</h6>
+            @if(!now()->isSameDay($invoice->invoice_date))
+            <div class="alert alert-warning mb-0">Tickets can only be voided on the same day they were issued ({{ $invoice->invoice_date->format('d/m/Y') }}). Use Refund instead.</div>
+            @else
+            <form action="{{ route('ticket_invoices.lines.void', [$invoice->id, $line->id]) }}" method="POST">
+                @csrf
+                <div class="row">
+                    <div class="col-md-4 mb-2">
+                        <label class="form-label">Deduction by Supplier</label>
+                        <input type="number" step="0.01" min="0" name="void_deduction_supplier" class="form-control" value="0" required>
+                    </div>
+                    <div class="col-md-4 mb-2">
+                        <label class="form-label">Deduction by {{ config('travel.company_name') }}</label>
+                        <input type="number" step="0.01" min="0" name="void_deduction_company" class="form-control" value="0" required>
+                    </div>
+                </div>
+                <small class="text-muted">All other amounts on this ticket become 0 — only the total deduction remains receivable from the customer.</small>
+                <div class="mt-2">
+                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Void this ticket? This cannot be undone.');">Confirm Void</button>
+                    <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Cancel</button>
+                </div>
+            </form>
+            @endif
+        </div>
+        @endcan
+        @endif
         @endforeach
 
         <section class="card">
