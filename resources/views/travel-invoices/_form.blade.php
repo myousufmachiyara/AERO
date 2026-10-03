@@ -496,7 +496,7 @@
 
             <hr class="my-2">
             <div class="row">
-                <label class="card-title d-block">Receivables</label>
+                <label class="form-label d-block">Receivables</label>
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Receivable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
@@ -513,7 +513,7 @@
                 </div>
             </div>
             <div class="row">
-                <label class="card-title d-block">Payable</label>
+                <label class="form-label d-block">Payable</label>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Payable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
