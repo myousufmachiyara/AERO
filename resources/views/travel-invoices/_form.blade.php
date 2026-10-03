@@ -745,14 +745,6 @@
                 </tr>
             </template>
 
-            <div class="mb-1">
-                <label class="form-label d-block">Charges <small class="field-note">(informational — not netted into PSF below)</small></label>
-                <table class="table table-bordered table-sm mini-table charges-table">
-                    <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
-                    <tbody></tbody>
-                </table>
-                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addChargeRow(this.closest('.line-card'))">+ Add Charge</button>
-            </div>
             <template class="charge-tpl">
                 <tr>
                     <td>
@@ -812,6 +804,7 @@
             </div>
 
             <hr class="my-2">
+            
             <div class="row align-items-end">
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Agent Commission %</label>
@@ -826,6 +819,16 @@
                     <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
                 </div>
             </div>
+
+            <div class="mb-1">
+                <label class="form-label d-block">Charges <small class="field-note">(informational — not netted into PSF below)</small></label>
+                <table class="table table-bordered table-sm mini-table charges-table">
+                    <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addChargeRow(this.closest('.line-card'))">+ Add Charge</button>
+            </div>
+
         </div>
     </template>
     @endif
