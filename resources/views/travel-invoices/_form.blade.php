@@ -496,12 +496,13 @@
 
             <hr class="my-2">
             <div class="row">
+                <label class="card-title d-block">Receivables</label>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Receivable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
                 </div>
                 <div class="col-md-2 mb-2">
-                    <label class="form-label">Receivable Curreny</label>
+                    <label class="form-label">Curreny</label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
@@ -510,12 +511,15 @@
                     <label class="form-label">Receivable Exch. Rate</label>
                     <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
+            </div>
+            <div>
+                <label class="card-title d-block">Payable</label>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Payable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
                 </div>
                 <div class="col-md-1 mb-2">
-                    <label class="form-label">Payable Currency</label>
+                    <label class="form-label">Currency</label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
