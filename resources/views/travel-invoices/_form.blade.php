@@ -493,13 +493,9 @@
                 <div class="col-md-5 mb-2"><label class="form-label">Remark</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
                 <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
             </div>
-            
+
             <hr class="my-2">
             <div class="row">
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Exch. Rate</label>
-                    <input type="number" step="any" name="lines[__IDX__][exchange_rate]" class="form-control line-rate line-field" value="1">
-                </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Receivable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
