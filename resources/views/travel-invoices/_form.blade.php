@@ -476,6 +476,12 @@
             </div>
 
             <div class="row">
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Currency</label>
+                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
+                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                    </select>
+                </div>
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Booking Status<span class="text-danger">*</span> <small class="field-note">(not saved yet)</small></label>
                     <select class="form-control not-persisted-field">
@@ -505,38 +511,25 @@
 
             <hr class="my-2">
             <div class="row">
-                <div class="col-md-3 mb-2">
-                    <label class="form-label">Template <small class="field-note">(optional — auto-fills Currency/Rate/Charges)</small></label>
-                    <select class="form-control select2-js template-select" onchange="onTemplateChange(this)">
-                        <option value="">— None —</option>
-                        @foreach($chargeTemplatesByType->get('hotel', collect()) as $ct)
-                        <option value="{{ $ct->id }}"
-                            data-currency="{{ $ct->default_currency }}"
-                            data-rate="{{ $ct->default_exchange_rate }}"
-                            data-items='@json($ct->items->map(fn ($it) => ["charge_type_id" => $it->charge_type_id, "value" => (float) $it->value])->values())'>
-                            {{ $ct->name }} ({{ optional($ct->effective_date)->format('d/m/Y') }})
-                        </option>
-                        @endforeach
-                    </select>
-                    <input type="hidden" name="lines[__IDX__][charge_template_id]" class="template-id-field">
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Currency</label>
-                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
-                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
-                    </select>
-                </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Exch. Rate</label>
                     <input type="number" step="any" name="lines[__IDX__][exchange_rate]" class="form-control line-rate line-field" value="1">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Receivable (F)</label>
+                    <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Receivable Exch. Rate</label>
+                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Payable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
                 </div>
                 <div class="col-md-2 mb-2">
-                    <label class="form-label">Receivable (F)</label>
-                    <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
+                    <label class="form-label">Payable Exch. Rate</label>
+                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
                 <div class="col-md-1 mb-2 text-end">
                     <label class="form-label d-block">&nbsp;</label>
