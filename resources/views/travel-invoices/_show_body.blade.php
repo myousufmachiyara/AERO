@@ -99,8 +99,12 @@
                                     <td>{{ $line->hotelDetail->nights ?? '—' }}</td>
                                 @endif
                                 @if($type === 'transport')
-                                    <td>{{ $line->transportDetail->vehicle->name ?? '—' }}</td>
-                                    <td>{{ $line->transportDetail->sector ?? '—' }}</td>
+                                    {{-- Vehicle Details is now a grid (a line can cover more than one vehicle) — prefer it, falling back to the old single-vehicle fields for lines saved before this fix. --}}
+                                    @php($transportVehicles = $line->transportDetail ? $line->transportDetail->vehicles : collect())
+                                    @php($vehicleNames = $transportVehicles->map(fn ($v) => optional($v->vehicle)->name)->filter()->values())
+                                    @php($vehicleSectors = $transportVehicles->map(fn ($v) => $v->sector)->filter()->values())
+                                    <td>{{ $vehicleNames->isNotEmpty() ? $vehicleNames->implode(', ') : ($line->transportDetail->vehicle->name ?? '—') }}</td>
+                                    <td>{{ $vehicleSectors->isNotEmpty() ? $vehicleSectors->implode(', ') : ($line->transportDetail->sector ?? '—') }}</td>
                                 @endif
                                 @if($type === 'visa')
                                     <td>{{ $line->visaDetail->visaType->name ?? '—' }}</td>

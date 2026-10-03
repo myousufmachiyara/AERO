@@ -21,8 +21,21 @@ class InvoiceTransportDetail extends Model
         return $this->belongsTo(ServiceLine::class);
     }
 
+    // vehicle_id/sector kept for back-compat with lines saved before
+    // Vehicle Details became a grid (see InvoiceTransportVehicle) — the
+    // Transport tab UI itself no longer sends these at this level, it
+    // sends a `vehicles` array instead (one row per vehicle).
     public function vehicle()
     {
         return $this->belongsTo(Vehicle::class);
+    }
+
+    /**
+     * Vehicle Details is now a repeatable grid — a transport line can
+     * cover more than one vehicle/sector pair.
+     */
+    public function vehicles()
+    {
+        return $this->hasMany(InvoiceTransportVehicle::class)->orderBy('sort_order');
     }
 }

@@ -139,7 +139,8 @@ abstract class BaseTravelInvoiceController extends Controller
             'serviceLines.supplier', 'serviceLines.ticketDetail.flights',
             'serviceLines.hotelDetail.hotel', 'serviceLines.hotelDetail.hotelRoom',
             'serviceLines.hotelDetail.rooms.hotelRoom', 'serviceLines.hotelDetail.rooms.roomView',
-            'serviceLines.transportDetail.vehicle', 'serviceLines.visaDetail.visaType',
+            'serviceLines.transportDetail.vehicle', 'serviceLines.transportDetail.vehicles.vehicle',
+            'serviceLines.visaDetail.visaType',
             'serviceLines.otherDetail.service', 'serviceLines.charges.chargeType',
         ]);
 
@@ -150,7 +151,7 @@ abstract class BaseTravelInvoiceController extends Controller
     {
         $invoice = $this->findForType($id, [
             'passengers', 'serviceLines.ticketDetail.flights', 'serviceLines.hotelDetail.rooms',
-            'serviceLines.transportDetail', 'serviceLines.visaDetail', 'serviceLines.otherDetail',
+            'serviceLines.transportDetail.vehicles', 'serviceLines.visaDetail', 'serviceLines.otherDetail',
             'serviceLines.charges',
         ]);
 
@@ -382,10 +383,15 @@ abstract class BaseTravelInvoiceController extends Controller
             'lines.*.detail.rooms.*.total_amount' => 'nullable|numeric|min:0',
 
             'lines.*.detail.vehicle_id' => 'nullable|exists:vehicles,id',
-            // Transport tab rework: Category is a free-text field here
-            // (Transport has no fixed category list like Hotel's
-            // umrah/hajj/holiday/tour/visitor dropdown).
-            'lines.*.detail.category' => 'nullable|string|max:100',
+            // Transport tab rework: Category is now a dropdown with the
+            // same options as Hotel's Category.
+            'lines.*.detail.category' => 'nullable|in:umrah,hajj,holiday,tour,visitor',
+            // Vehicle Details is now a repeatable grid (a transport line
+            // can cover more than one vehicle/sector pair) — same pattern
+            // as Hotel's Room Details grid.
+            'lines.*.detail.vehicles' => 'nullable|array',
+            'lines.*.detail.vehicles.*.vehicle_id' => 'nullable|exists:vehicles,id',
+            'lines.*.detail.vehicles.*.sector' => 'nullable|string|max:100',
             'lines.*.detail.visa_type_id' => 'nullable|exists:visa_types,id',
             'lines.*.detail.apply_date' => 'nullable|date',
             'lines.*.detail.expiry_date' => 'nullable|date',

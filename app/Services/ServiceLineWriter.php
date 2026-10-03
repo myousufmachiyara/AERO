@@ -8,6 +8,7 @@ use App\Models\InvoiceOtherDetail;
 use App\Models\InvoiceTicketDetail;
 use App\Models\InvoiceTicketFlight;
 use App\Models\InvoiceTransportDetail;
+use App\Models\InvoiceTransportVehicle;
 use App\Models\InvoiceVisaDetail;
 use App\Models\ServiceLine;
 use App\Models\ServiceLineCharge;
@@ -209,8 +210,13 @@ class ServiceLineWriter
                 // real, saved fields (unlike Hotel's Category, kept
                 // informational-only), plus the same dual receivable/
                 // payable currency+rate and agent commission fields as
-                // Hotel's "Charges Details" section.
-                InvoiceTransportDetail::create([
+                // Hotel's "Charges Details" section. vehicle_id/sector
+                // kept here for back-compat (older data, any direct API
+                // caller still sending the old single-vehicle shape) — the
+                // Transport tab UI itself no longer sends these at this
+                // level, it sends a `vehicles` array instead (one row per
+                // vehicle), written to invoice_transport_vehicles below.
+                $transportDetail = InvoiceTransportDetail::create([
                     'service_line_id' => $line->id,
                     'vehicle_id' => $detail['vehicle_id'] ?? null,
                     'sector' => $detail['sector'] ?? null,
@@ -224,6 +230,18 @@ class ServiceLineWriter
                     'agent_commission_percent' => $detail['agent_commission_percent'] ?? 0,
                     'agent_commission_amount' => $detail['agent_commission_amount'] ?? 0,
                 ]);
+
+                foreach (array_values($detail['vehicles'] ?? []) as $j => $veh) {
+                    if (empty($veh['vehicle_id']) && empty($veh['sector'])) {
+                        continue;
+                    }
+                    InvoiceTransportVehicle::create([
+                        'invoice_transport_detail_id' => $transportDetail->id,
+                        'vehicle_id' => $veh['vehicle_id'] ?? null,
+                        'sector' => $veh['sector'] ?? null,
+                        'sort_order' => $j,
+                    ]);
+                }
                 break;
 
             case 'visa':
