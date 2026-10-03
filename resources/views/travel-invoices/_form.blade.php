@@ -9,6 +9,11 @@
     $existingPassengers = $invoice->passengers ?? ($quotation->passengers ?? collect());
     $tabTypes = ['ticket' => 'Ticket', 'hotel' => 'Hotel', 'transport' => 'Transport', 'visa' => 'Visa', 'other' => 'Other Services'];
     $activeTabs = array_intersect_key($tabTypes, array_flip($serviceTypes));
+    // Templates grouped by service_category so each tab's Template dropdown
+    // only lists the rate cards built for that tab (e.g. "Catalyst Visa
+    // 22/07/2026" only appears on the Visa tab) — matches the "Template"
+    // dropdown seen in every reference screenshot.
+    $chargeTemplatesByType = $chargeTemplates->groupBy('service_category');
 
     // Serialize existing lines (from an invoice being edited) or a
     // quotation's flat lines (being converted) into one JSON shape the JS
@@ -31,7 +36,7 @@
                     break;
                 case 'hotel':
                     if ($line->hotelDetail) {
-                        $detail = $line->hotelDetail->only(['hotel_id', 'hotel_room_id', 'nights', 'room_qty', 'extra_bed_qty', 'booking_name']);
+                        $detail = $line->hotelDetail->only(['hotel_id', 'hotel_room_id', 'room_view_id', 'nights', 'room_qty', 'extra_bed_qty', 'booking_name']);
                         $detail['check_in'] = optional($line->hotelDetail->check_in)->format('Y-m-d');
                         $detail['check_out'] = optional($line->hotelDetail->check_out)->format('Y-m-d');
                     }
@@ -58,6 +63,7 @@
             $linesJson[] = [
                 'service_type' => $line->service_type,
                 'supplier_id' => $line->supplier_id,
+                'charge_template_id' => $line->charge_template_id,
                 'description' => $line->description,
                 'currency' => $line->currency,
                 'exchange_rate' => (float) $line->exchange_rate,
@@ -74,6 +80,7 @@
             $linesJson[] = [
                 'service_type' => $line->service_type,
                 'supplier_id' => $line->supplier_id,
+                'charge_template_id' => $line->charge_template_id ?? null,
                 'description' => $line->description,
                 'currency' => $line->currency,
                 'exchange_rate' => (float) $line->exchange_rate,
@@ -93,6 +100,8 @@
     .line-income.positive { color: #198754; font-weight: 600; }
     .mini-table th, .mini-table td { padding: .25rem .4rem; vertical-align: middle; }
     #paxTable th { background: #f8f9fa; }
+    .not-persisted-field { background-image: linear-gradient(45deg, rgba(255,193,7,.08) 25%, transparent 25%, transparent 50%, rgba(255,193,7,.08) 50%, rgba(255,193,7,.08) 75%, transparent 75%, transparent); background-size: 8px 8px; }
+    .field-note { font-size: .72rem; color: #997404; }
 </style>
 
 <ul class="nav nav-tabs" id="invoiceTabs" role="tablist">
@@ -144,11 +153,15 @@
                 <input type="text" name="name_on_invoice" class="form-control" value="{{ old('name_on_invoice', $invoice->name_on_invoice ?? '') }}">
             </div>
         </div>
+        {{--
+            Client fix: Cost Center removed from this tab per feedback.
+            (Note: "Visa Type" was also asked to be removed from General
+            Information, but no such field has ever existed here — it only
+            exists inside the separate Visa tab below, where it stays, since
+            removing it from the Visa tab wasn't asked for. Flagged in the
+            delivery notes rather than guessed at.)
+        --}}
         <div class="row">
-            <div class="col-md-3 mb-3">
-                <label class="form-label">Cost Center</label>
-                <input type="text" name="cost_center" class="form-control" value="{{ old('cost_center', $invoice->cost_center ?? '') }}">
-            </div>
             <div class="col-md-3 mb-3">
                 <label class="form-label">Staff</label>
                 <select name="staff_id" class="form-control select2-js">
@@ -156,7 +169,7 @@
                     @foreach($staffUsers as $u)<option value="{{ $u->id }}" @selected(old('staff_id', $invoice->staff_id ?? '') == $u->id)>{{ $u->name }}</option>@endforeach
                 </select>
             </div>
-            <div class="col-md-6 mb-3">
+            <div class="col-md-9 mb-3">
                 <label class="form-label">Remarks</label>
                 <input type="text" name="remarks" class="form-control" value="{{ old('remarks', $invoice->remarks ?? '') }}">
             </div>
@@ -201,11 +214,187 @@
         <button type="button" class="btn btn-success btn-sm" onclick="addPaxRow()">+ Add Passenger</button>
     </div>
 
-    {{-- ============ One tab + one <template> per service type ============ --}}
+    {{--
+        ============ Ticket tab: Master Details + Grid ============
+        Pulled out of the generic per-type loop below — it now has a
+        fundamentally different shape (one shared Master Details block +
+        one lean grid row per passenger) copied from the already
+        client-approved Ticket Sale Invoice layout, instead of one
+        line-card per ticket.
+    --}}
+    @if(isset($activeTabs['ticket']))
+    <div class="tab-pane fade" id="tab-ticket">
+        <div class="alert alert-info small mb-3">
+            Master Details below are shared by every ticket in the grid — fill in the shared supplier / flight / charge information once, then add one grid row per passenger. Layout mirrors the Ticket Sale Invoice form already approved by the client.
+        </div>
+
+        <section class="card mb-3">
+            <header class="card-header"><h3 class="card-title h6 mb-0">Master Details <small class="text-muted">— shared by every ticket below</small></h3></header>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-2">
+                        <label class="form-label">Supplier</label>
+                        <select class="form-control select2-js" id="tk-supplier">
+                            <option value="">— None —</option>
+                            @foreach($suppliers as $s)<option value="{{ $s->id }}">{{ $s->is_flagged ? '⚠ ' : '' }}{{ $s->name }}</option>@endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <label class="form-label">Template</label>
+                        <select class="form-control select2-js" id="tk-template" onchange="onTicketTemplateChange(this)">
+                            <option value="">— None —</option>
+                            @foreach($chargeTemplatesByType->get('ticket', collect()) as $ct)
+                            <option value="{{ $ct->id }}"
+                                data-currency="{{ $ct->default_currency }}"
+                                data-rate="{{ $ct->default_exchange_rate }}"
+                                data-items='@json($ct->items->map(fn ($it) => ["charge_type_id" => $it->charge_type_id, "value" => (float) $it->value])->values())'>
+                                {{ $ct->name }} ({{ optional($ct->effective_date)->format('d/m/Y') }})
+                            </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Currency</label>
+                        <select class="form-control" id="tk-currency">
+                            @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Exch. Rate</label>
+                        <input type="number" step="any" class="form-control" id="tk-rate" value="1">
+                    </div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Airline</label>
+                        <input type="text" class="form-control" id="tk-airline">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-2 mb-2"><label class="form-label">GDS</label><input type="text" class="form-control" id="tk-gds"></div>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Ticket Type</label>
+                        <select class="form-control" id="tk-ticket-type">
+                            <option value="international">International</option>
+                            <option value="domestic">Domestic</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 mb-2"><label class="form-label">Issue Date</label><input type="date" class="form-control" id="tk-issue-date"></div>
+                    <div class="col-md-3 mb-2"><label class="form-label">Sector</label><input type="text" class="form-control" id="tk-sector" placeholder="e.g. KHI-JED-KHI"></div>
+                    <div class="col-md-3 mb-2"><label class="form-label">Tour Code</label><input type="text" class="form-control" id="tk-tour-code"></div>
+                </div>
+                <div class="row">
+                    <div class="col-md-3 mb-2"><label class="form-label">PNR</label><input type="text" class="form-control" id="tk-pnr"></div>
+                    <div class="col-md-3 mb-2"><label class="form-label">Receivable (F) <small class="text-muted">per ticket</small></label><input type="number" step="any" class="form-control" id="tk-recv" value="0"></div>
+                    <div class="col-md-3 mb-2"><label class="form-label">Payable (F) <small class="text-muted">per ticket</small></label><input type="number" step="any" class="form-control" id="tk-pay" value="0"></div>
+                    <div class="col-md-3 mb-2"><label class="form-label">Income (Local) <small class="text-muted">per ticket</small></label><div class="form-control-plaintext fw-bold line-income" id="tk-income">0.00</div></div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label d-block">Flight Legs <small class="text-muted">(shared by every ticket)</small></label>
+                    <table class="table table-bordered table-sm mini-table" id="tk-flights-table">
+                        <thead><tr><th>City</th><th>Flight No</th><th>Dep Date</th><th>Dep Time</th><th>Arr Time</th><th>Fare Basis</th><th width="36"></th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="tkAddFlightRow()">+ Add Flight Leg</button>
+                </div>
+                <template id="tk-flight-tpl">
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm tk-f-city"></td>
+                        <td><input type="text" class="form-control form-control-sm tk-f-flightno"></td>
+                        <td><input type="date" class="form-control form-control-sm tk-f-depdate"></td>
+                        <td><input type="text" class="form-control form-control-sm tk-f-deptime" placeholder="HH:MM"></td>
+                        <td><input type="text" class="form-control form-control-sm tk-f-arrtime" placeholder="HH:MM"></td>
+                        <td><input type="text" class="form-control form-control-sm tk-f-farebasis"></td>
+                        <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); tkSyncAll();"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                </template>
+
+                <div class="mb-1">
+                    <label class="form-label d-block">Charges (SPO / WHT / COM / PSF / Tax ...) <small class="text-muted">(shared by every ticket)</small></label>
+                    <table class="table table-bordered table-sm mini-table" id="tk-charges-table">
+                        <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
+                        <tbody></tbody>
+                    </table>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="tkAddChargeRow()">+ Add Charge</button>
+                </div>
+                <template id="tk-charge-tpl">
+                    <tr>
+                        <td>
+                            <select class="form-control form-control-sm tk-c-type" onchange="tkOnChargeTypeChange(this)">
+                                <option value="">— Select —</option>
+                                @foreach($chargeTypes as $ct)<option value="{{ $ct->id }}" data-calc="{{ $ct->calculation_type }}" data-default="{{ $ct->default_value }}">{{ $ct->name }}</option>@endforeach
+                            </select>
+                        </td>
+                        <td><input type="number" step="any" class="form-control form-control-sm tk-c-value" value="0"></td>
+                        <td><input type="number" step="any" class="form-control form-control-sm tk-c-amount" value="0"></td>
+                        <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); tkRecalcMaster();"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                </template>
+            </div>
+        </section>
+
+        <section class="card mb-3">
+            <header class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="card-title h6 mb-0">Tickets <small class="text-muted">— one row per passenger</small></h3>
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="tkAddTicketRow()"><i class="fas fa-plus"></i> Add Ticket</button>
+            </header>
+            <div class="card-body">
+                <p class="text-muted small mb-2">Passenger Name is free text, same as the approved Ticket Sale Invoice layout. Ticket # auto-fills from the first row's number — type it once and the rest increment; editing any row by hand stops it being overwritten. <span class="field-note">Pax Type here is visual only for now — it isn't saved yet.</span></p>
+                <div class="table-responsive">
+                <table class="table table-bordered table-sm mb-0" id="tk-tickets-table">
+                    <thead>
+                        <tr>
+                            <th style="width:3%;">#</th>
+                            <th>Passenger Name</th>
+                            <th style="width:16%;">Pax Type</th>
+                            <th style="width:18%;">Ticket #</th>
+                            <th style="width:12%;" class="text-end">Income</th>
+                            <th style="width:5%;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tk-tickets-wrap"></tbody>
+                </table>
+                </div>
+            </div>
+        </section>
+
+        <template id="tk-ticket-row-tpl">
+            <tr>
+                <td class="align-middle"><span class="tk-row-index"></span></td>
+                <td><input type="text" class="form-control form-control-sm tk-row-name" placeholder="Passenger name"></td>
+                <td>
+                    <select class="form-control form-control-sm tk-row-paxtype not-persisted-field">
+                        <option value="adult">Adult</option><option value="child">Child</option><option value="infant">Infant</option>
+                    </select>
+                </td>
+                <td><input type="text" class="form-control form-control-sm tk-row-ticketno" placeholder="Ticket #"></td>
+                <td class="text-end align-middle line-income fw-bold">0.00</td>
+                <td class="text-center align-middle"><button type="button" class="btn btn-sm btn-outline-danger" onclick="tkRemoveRow(this)"><i class="fas fa-trash"></i></button></td>
+            </tr>
+        </template>
+
+        <div class="card mb-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <span class="text-muted"><span id="tk-ticket-count">0</span> ticket(s) &times; <span id="tk-per-ticket">0.00</span></span>
+                <h5 class="mb-0">Ticket Tab Total: <span id="tk-tab-total">0.00</span></h5>
+            </div>
+        </div>
+    </div>
+    @endif
+
+    {{-- ============ One tab + one <template> per remaining service type ============ --}}
     @foreach($activeTabs as $type => $label)
+    @continue($type === 'ticket')
     <div class="tab-pane fade" id="tab-{{ $type }}">
         <div id="cards-{{ $type }}"></div>
         <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('{{ $type }}')">+ Add {{ $label }} Line</button>
+        @if($type === 'hotel')
+        <div class="card mt-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <span class="text-muted">Hotel lines total receivable (local currency)</span>
+                <h5 class="mb-0" id="hotel-tab-total-receivable">0.00</h5>
+            </div>
+        </div>
+        @endif
     </div>
 
     <template id="tpl-{{ $type }}">
@@ -219,9 +408,26 @@
                         @foreach($suppliers as $s)<option value="{{ $s->id }}">{{ $s->is_flagged ? '⚠ ' : '' }}{{ $s->name }}</option>@endforeach
                     </select>
                 </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Template</label>
+                    <select class="form-control select2-js template-select" onchange="onTemplateChange(this)">
+                        <option value="">— None —</option>
+                        @foreach($chargeTemplatesByType->get($type, collect()) as $ct)
+                        <option value="{{ $ct->id }}"
+                            data-currency="{{ $ct->default_currency }}"
+                            data-rate="{{ $ct->default_exchange_rate }}"
+                            data-items='@json($ct->items->map(fn ($it) => ["charge_type_id" => $it->charge_type_id, "value" => (float) $it->value])->values())'>
+                            {{ $ct->name }} ({{ optional($ct->effective_date)->format('d/m/Y') }})
+                        </option>
+                        @endforeach
+                    </select>
+                    <input type="hidden" name="lines[__IDX__][charge_template_id]" class="template-id-field">
+                </div>
                 <div class="col-md-1 mb-2">
                     <label class="form-label">Currency</label>
-                    <input type="text" name="lines[__IDX__][currency]" class="form-control line-currency line-field" maxlength="3" value="PKR">
+                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
+                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                    </select>
                 </div>
                 <div class="col-md-1 mb-2">
                     <label class="form-label">Exch. Rate</label>
@@ -231,62 +437,27 @@
                     <label class="form-label">Receivable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
                 </div>
-                <div class="col-md-2 mb-2">
+                <div class="col-md-1 mb-2">
                     <label class="form-label">Payable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Income (Local)</label>
-                    <div class="form-control-plaintext line-income fw-bold">0.00</div>
                 </div>
                 <div class="col-md-1 mb-2 text-end">
                     <label class="form-label d-block">&nbsp;</label>
                     <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
                 </div>
             </div>
-
-            @if($type === 'ticket')
             <div class="row">
-                <div class="col-md-2 mb-2"><label class="form-label">PNR</label><input type="text" name="lines[__IDX__][detail][pnr]" class="form-control"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">GDS</label><input type="text" name="lines[__IDX__][detail][gds]" class="form-control"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Airline</label><input type="text" name="lines[__IDX__][detail][airline]" class="form-control"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Ticket No</label><input type="text" name="lines[__IDX__][detail][ticket_no]" class="form-control"></div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Ticket Type</label>
-                    <select name="lines[__IDX__][detail][ticket_type]" class="form-control">
-                        <option value="international">International</option>
-                        <option value="domestic">Domestic</option>
-                    </select>
+                <div class="col-md-12 mb-2 text-end">
+                    <span class="text-muted">Income (Local):</span> <span class="line-income fw-bold">0.00</span>
                 </div>
-                <div class="col-md-2 mb-2"><label class="form-label">Issue Date</label><input type="date" name="lines[__IDX__][detail][issue_date]" class="form-control"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Sector</label><input type="text" name="lines[__IDX__][detail][sector]" class="form-control" placeholder="e.g. KHI-JED-KHI"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Tour Code</label><input type="text" name="lines[__IDX__][detail][tour_code]" class="form-control"></div>
             </div>
-            <div class="mb-2">
-                <label class="form-label d-block">Flight Legs</label>
-                <table class="table table-bordered table-sm mini-table flights-table">
-                    <thead><tr><th>City</th><th>Flight No</th><th>Dep Date</th><th>Dep Time</th><th>Arr Time</th><th>Fare Basis</th><th width="36"></th></tr></thead>
-                    <tbody></tbody>
-                </table>
-                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addFlightRow(this.closest('.line-card'))">+ Add Flight Leg</button>
-            </div>
-            <template class="flight-tpl">
-                <tr>
-                    <td><input type="text" name="lines[__IDX__][detail][flights][__FIDX__][city]" class="form-control form-control-sm"></td>
-                    <td><input type="text" name="lines[__IDX__][detail][flights][__FIDX__][flight_no]" class="form-control form-control-sm"></td>
-                    <td><input type="date" name="lines[__IDX__][detail][flights][__FIDX__][dep_date]" class="form-control form-control-sm"></td>
-                    <td><input type="text" name="lines[__IDX__][detail][flights][__FIDX__][dep_time]" class="form-control form-control-sm" placeholder="HH:MM"></td>
-                    <td><input type="text" name="lines[__IDX__][detail][flights][__FIDX__][arr_time]" class="form-control form-control-sm" placeholder="HH:MM"></td>
-                    <td><input type="text" name="lines[__IDX__][detail][flights][__FIDX__][fare_basis]" class="form-control form-control-sm"></td>
-                    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove()"><i class="fas fa-times"></i></button></td>
-                </tr>
-            </template>
-            @endif
 
             @if($type === 'hotel')
             <div class="row">
+                <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control"></div>
                 <div class="col-md-3 mb-2">
-                    <label class="form-label">Hotel</label>
+                    <label class="form-label">Hotel Name</label>
                     <select name="lines[__IDX__][detail][hotel_id]" class="form-control select2-js hotel-select" onchange="onHotelChange(this)">
                         <option value="">— None —</option>
                         @foreach($hotels as $h)<option value="{{ $h->id }}">{{ $h->name }} ({{ $h->city }})</option>@endforeach
@@ -298,13 +469,72 @@
                         <option value="">— Select Hotel First —</option>
                     </select>
                 </div>
-                <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Nights</label><input type="number" name="lines[__IDX__][detail][nights]" class="form-control" value="1"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Room Qty</label><input type="number" name="lines[__IDX__][detail][room_qty]" class="form-control" value="1"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed Qty</label><input type="number" name="lines[__IDX__][detail][extra_bed_qty]" class="form-control" value="0"></div>
-                <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Room View</label>
+                    <select name="lines[__IDX__][detail][room_view_id]" class="form-control select2-js">
+                        <option value="">— None —</option>
+                        @foreach($roomViews as $rv)<option value="{{ $rv->id }}">{{ $rv->name }}</option>@endforeach
+                    </select>
+                </div>
             </div>
+            <div class="row">
+                <div class="col-md-2 mb-2"><label class="form-label">No. of Nights</label><input type="number" min="0" name="lines[__IDX__][detail][nights]" class="form-control hotel-nights" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Costing Type <small class="field-note">(not saved yet)</small></label>
+                    <select class="form-control not-persisted-field">
+                        <option value="per_pax">Per Pax</option>
+                        <option value="per_room" selected>Per Room</option>
+                        <option value="per_bed">Per Bed</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2"><label class="form-label">No. of Room</label><input type="number" min="0" name="lines[__IDX__][detail][room_qty]" class="form-control hotel-room-qty" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Category <small class="field-note">(not saved yet)</small></label>
+                    <select class="form-control not-persisted-field">
+                        @foreach(['umrah' => 'Umrah', 'hajj' => 'Hajj', 'holiday' => 'Holiday', 'tour' => 'Tour', 'visitor' => 'Visitor'] as $val => $lbl)
+                        <option value="{{ $val }}">{{ $lbl }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Booking Status<span class="text-danger">*</span> <small class="field-note">(not saved yet)</small></label>
+                    <select class="form-control not-persisted-field">
+                        <option value="confirmed" selected>Confirmed</option>
+                        <option value="pending">Pending</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed Qty</label><input type="number" min="0" name="lines[__IDX__][detail][extra_bed_qty]" class="form-control hotel-bed-qty" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-2"><label class="form-label">Remark</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
+                <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Pax <small class="field-note">(visual only, from Passengers grid — not saved yet)</small></label>
+                    <select multiple class="form-control not-persisted-field hotel-pax-picker" style="height:68px;"></select>
+                </div>
+            </div>
+            <hr class="my-2">
+            <div class="row">
+                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">receivable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">payable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-3 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">receivable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-3 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">payable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+            </div>
+            <div class="row">
+                <div class="col-md-6 mb-2 form-check">
+                    <input type="checkbox" class="form-check-input hotel-auto-update" onchange="recalcHotelComponents(this.closest('.line-card'))" checked>
+                    <label class="form-check-label">Auto Update Receivable/Payable (F) above from the Room/Extra Bed charges</label>
+                </div>
+            </div>
+            @endif
+
+            @if($type === 'ticket')
+            {{-- Dead branch: the Ticket service type is now rendered by its
+                 own Master+Grid block above, never through this generic
+                 per-line template. Left here only so a stray existing
+                 ticket-type ServiceLine (none expected) wouldn't silently
+                 vanish if ever routed through addLineCard() by mistake. --}}
             @endif
 
             @if($type === 'transport')
@@ -318,6 +548,13 @@
                 </div>
                 <div class="col-md-4 mb-2"><label class="form-label">Sector</label><input type="text" name="lines[__IDX__][detail][sector]" class="form-control"></div>
                 <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
+            </div>
+            <div class="row">
+                <div class="col-md-3 mb-2"><label class="form-label">Transporter <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
+                <div class="col-md-3 mb-2"><label class="form-label">Package <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Inventory <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Reference No <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Category <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
             </div>
             @endif
 
@@ -350,7 +587,7 @@
             @endif
 
             <div class="mb-1">
-                <label class="form-label d-block">Charges (SPO / WHT / COM / PSF / Tax ...)</label>
+                <label class="form-label d-block">{{ $type === 'other' ? 'Charges (SPO / WHT / COM / PSF / Tax ...)' : 'Other Charges / Discount (SPO / WHT / COM / PSF / Tax ...)' }}</label>
                 <table class="table table-bordered table-sm mini-table charges-table">
                     <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
                     <tbody></tbody>
@@ -421,6 +658,53 @@
             roomSelect.appendChild(opt);
         });
         if (window.jQuery) $(roomSelect).trigger('change.select2') || $(roomSelect).select2({dropdownParent: card});
+    }
+
+    function populateHotelPaxPicker(card) {
+        const picker = card.querySelector('.hotel-pax-picker');
+        if (!picker) return;
+        picker.innerHTML = '';
+        document.querySelectorAll('#paxTable tbody tr').forEach((row, i) => {
+            const nameInput = row.querySelector('input[name*="[name]"]');
+            const name = nameInput ? nameInput.value : '';
+            if (!name) return;
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = name;
+            picker.appendChild(opt);
+        });
+    }
+
+    function recalcHotelComponents(card) {
+        if (!card) return;
+        const nights = parseFloat(card.querySelector('.hotel-nights')?.value) || 0;
+        const roomQty = parseFloat(card.querySelector('.hotel-room-qty')?.value) || 0;
+        const bedQty = parseFloat(card.querySelector('.hotel-bed-qty')?.value) || 0;
+        const roomRecvRate = parseFloat(card.querySelector('.hotel-room-recv')?.value) || 0;
+        const roomPayRate = parseFloat(card.querySelector('.hotel-room-pay')?.value) || 0;
+        const bedRecvRate = parseFloat(card.querySelector('.hotel-bed-recv')?.value) || 0;
+        const bedPayRate = parseFloat(card.querySelector('.hotel-bed-pay')?.value) || 0;
+        const autoUpdate = card.querySelector('.hotel-auto-update');
+        if (autoUpdate && autoUpdate.checked) {
+            card.querySelector('.line-recv').value = ((roomRecvRate * nights * roomQty) + (bedRecvRate * nights * bedQty)).toFixed(2);
+            card.querySelector('.line-pay').value = ((roomPayRate * nights * roomQty) + (bedPayRate * nights * bedQty)).toFixed(2);
+        }
+        recalcCard(card);
+    }
+
+    function onTemplateChange(select) {
+        const card = select.closest('.line-card');
+        const opt = select.options[select.selectedIndex];
+        card.querySelector('.template-id-field').value = opt.value || '';
+        if (!opt.value) return;
+        if (opt.dataset.currency) card.querySelector('.line-currency').value = opt.dataset.currency;
+        if (opt.dataset.rate) card.querySelector('.line-rate').value = opt.dataset.rate;
+        const tbody = card.querySelector('.charges-table tbody');
+        tbody.innerHTML = '';
+        const items = JSON.parse(opt.dataset.items || '[]');
+        items.forEach(it => addChargeRow(card, { charge_type_id: it.charge_type_id, value: it.value, computed_amount: 0 }));
+        tbody.querySelectorAll('tr').forEach(row => recalcChargeRow(row));
+        recalcCard(card);
     }
 
     function onChargeTypeChange(select) {
@@ -509,6 +793,14 @@
         document.getElementById('cards-' + type).appendChild(card);
 
         if (data.supplier_id) card.querySelector('[name$="[supplier_id]"]').value = data.supplier_id;
+        if (data.charge_template_id) {
+            const templateSelect = card.querySelector('.template-select');
+            if (templateSelect) templateSelect.value = data.charge_template_id;
+            const hiddenField = card.querySelector('.template-id-field');
+            if (hiddenField) hiddenField.value = data.charge_template_id;
+        }
+        const descriptionField = card.querySelector('[name$="[description]"]');
+        if (descriptionField && data.description) descriptionField.value = data.description;
 
         const detail = data.detail || {};
         card.querySelectorAll('[name*="[detail]["]').forEach(el => {
@@ -527,6 +819,21 @@
         (data.charges || []).forEach(c => addChargeRow(card, c));
 
         if (window.jQuery) $(card).find('.select2-js').select2({dropdownParent: card});
+
+        if (type === 'hotel') {
+            populateHotelPaxPicker(card);
+            // An existing hotel line already has its real receivable/payable
+            // saved from before these new Room/Extra Bed rate fields
+            // existed — leave Auto Update OFF for it so loading the edit
+            // form doesn't zero those saved amounts out just because the
+            // new rate inputs default to 0. A brand-new line (no saved
+            // amount yet) keeps Auto Update ON.
+            if ((parseFloat(data.receivable_f_amount) || 0) > 0 || (parseFloat(data.payable_f_amount) || 0) > 0) {
+                const auto = card.querySelector('.hotel-auto-update');
+                if (auto) auto.checked = false;
+            }
+        }
+
         recalcCard(card);
         return card;
     }
@@ -544,28 +851,292 @@
         recalcTotals();
     }
 
+    function recalcHotelTabTotal() {
+        const totalEl = document.getElementById('hotel-tab-total-receivable');
+        if (!totalEl) return;
+        let total = 0;
+        document.querySelectorAll('#cards-hotel .line-card').forEach(card => {
+            const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
+            const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
+            total += recv * rate;
+        });
+        totalEl.textContent = total.toFixed(2);
+    }
+
+    // ============ Ticket tab: Master Details + Grid ============
+    let tkInitialized = false;
+
+    function tkAddFlightRow(data) {
+        const tpl = document.getElementById('tk-flight-tpl');
+        const tbody = document.querySelector('#tk-flights-table tbody');
+        const row = tpl.content.firstElementChild.cloneNode(true);
+        tbody.appendChild(row);
+        if (data) {
+            row.querySelector('.tk-f-city').value = data.city || '';
+            row.querySelector('.tk-f-flightno').value = data.flight_no || '';
+            row.querySelector('.tk-f-depdate').value = data.dep_date || '';
+            row.querySelector('.tk-f-deptime').value = data.dep_time || '';
+            row.querySelector('.tk-f-arrtime').value = data.arr_time || '';
+            row.querySelector('.tk-f-farebasis').value = data.fare_basis || '';
+        }
+        row.querySelectorAll('input').forEach(el => el.addEventListener('input', tkSyncAll));
+        tkSyncAll();
+    }
+
+    function tkOnChargeTypeChange(select) {
+        const opt = select.options[select.selectedIndex];
+        const row = select.closest('tr');
+        if (opt && opt.dataset.default) row.querySelector('.tk-c-value').value = opt.dataset.default;
+        tkRecalcChargeRow(row, opt);
+    }
+
+    function tkRecalcChargeRow(row, opt) {
+        opt = opt || row.querySelector('.tk-c-type').selectedOptions[0];
+        const value = parseFloat(row.querySelector('.tk-c-value').value) || 0;
+        if (opt && opt.dataset.calc === 'percentage') {
+            const rate = parseFloat(document.getElementById('tk-rate').value) || 0;
+            const recv = parseFloat(document.getElementById('tk-recv').value) || 0;
+            row.querySelector('.tk-c-amount').value = ((recv * rate) * value / 100).toFixed(2);
+        }
+        tkRecalcMaster();
+    }
+
+    function tkAddChargeRow(data) {
+        const tpl = document.getElementById('tk-charge-tpl');
+        const tbody = document.querySelector('#tk-charges-table tbody');
+        const row = tpl.content.firstElementChild.cloneNode(true);
+        tbody.appendChild(row);
+        if (data) {
+            row.querySelector('.tk-c-type').value = data.charge_type_id || '';
+            row.querySelector('.tk-c-value').value = data.value ?? 0;
+            row.querySelector('.tk-c-amount').value = data.computed_amount ?? 0;
+        }
+        row.querySelector('.tk-c-value').addEventListener('input', () => tkRecalcChargeRow(row));
+        row.querySelector('.tk-c-amount').addEventListener('input', tkRecalcMaster);
+        if (window.jQuery) $(row).find('select').select2({dropdownParent: row});
+        tkRecalcMaster();
+    }
+
+    function onTicketTemplateChange(select) {
+        const opt = select.options[select.selectedIndex];
+        if (!opt || !opt.value) { tkRecalcMaster(); return; }
+        if (opt.dataset.currency) document.getElementById('tk-currency').value = opt.dataset.currency;
+        if (opt.dataset.rate) document.getElementById('tk-rate').value = opt.dataset.rate;
+        const tbody = document.querySelector('#tk-charges-table tbody');
+        tbody.innerHTML = '';
+        const items = JSON.parse(opt.dataset.items || '[]');
+        items.forEach(it => tkAddChargeRow({ charge_type_id: it.charge_type_id, value: it.value, computed_amount: 0 }));
+        tbody.querySelectorAll('tr').forEach(row => tkRecalcChargeRow(row));
+        tkRecalcMaster();
+    }
+
+    function tkRecalcMaster() {
+        const rate = parseFloat(document.getElementById('tk-rate').value) || 0;
+        const recv = parseFloat(document.getElementById('tk-recv').value) || 0;
+        const pay = parseFloat(document.getElementById('tk-pay').value) || 0;
+        let chargesTotal = 0;
+        document.querySelectorAll('#tk-charges-table .tk-c-amount').forEach(el => chargesTotal += (parseFloat(el.value) || 0));
+        const income = (recv * rate) - (pay * rate) + chargesTotal;
+        document.getElementById('tk-income').textContent = income.toFixed(2);
+        tkRecalcGrandTotal(income);
+        tkSyncAll();
+    }
+
+    function tkRecalcGrandTotal(perTicketIncome) {
+        const rows = document.querySelectorAll('#tk-tickets-wrap tr');
+        rows.forEach(row => { row.querySelector('.line-income').textContent = perTicketIncome.toFixed(2); });
+        document.getElementById('tk-ticket-count').textContent = rows.length;
+        document.getElementById('tk-per-ticket').textContent = perTicketIncome.toFixed(2);
+        document.getElementById('tk-tab-total').textContent = (perTicketIncome * rows.length).toFixed(2);
+        recalcTotals();
+    }
+
+    function tkAutoSequence() {
+        const rows = Array.from(document.querySelectorAll('#tk-tickets-wrap tr'));
+        if (!rows.length) return;
+        const first = rows[0].querySelector('.tk-row-ticketno').value.trim();
+        const digitsMatch = first.match(/\d+$/);
+        if (!digitsMatch) { tkSyncAll(); return; }
+        const base = parseInt(digitsMatch[0], 10);
+        const prefix = first.slice(0, first.length - digitsMatch[0].length);
+        const pad = digitsMatch[0].length;
+        rows.forEach((row, i) => {
+            if (i === 0) return;
+            const input = row.querySelector('.tk-row-ticketno');
+            const isBlank = input.value.trim().length === 0;
+            if (isBlank || input.dataset.autoFilled === '1') {
+                input.value = prefix + String(base + i).padStart(pad, '0');
+                input.dataset.autoFilled = '1';
+            }
+        });
+        tkSyncAll();
+    }
+
+    function tkReindexRows() {
+        document.querySelectorAll('#tk-tickets-wrap tr').forEach((row, i) => {
+            row.querySelector('.tk-row-index').textContent = i + 1;
+        });
+    }
+
+    function tkAddTicketRow(data) {
+        data = data || {};
+        const tpl = document.getElementById('tk-ticket-row-tpl');
+        const row = tpl.content.firstElementChild.cloneNode(true);
+        row.dataset.lineIdx = lineIndex++;
+        document.getElementById('tk-tickets-wrap').appendChild(row);
+        row.querySelector('.tk-row-name').value = data.description || '';
+        row.querySelector('.tk-row-ticketno').value = (data.detail && data.detail.ticket_no) || '';
+        row.querySelector('.tk-row-name').addEventListener('input', tkSyncAll);
+        row.querySelector('.tk-row-paxtype').addEventListener('change', tkSyncAll);
+        row.querySelector('.tk-row-ticketno').addEventListener('input', e => {
+            e.target.dataset.autoFilled = '';
+            if (row === document.querySelector('#tk-tickets-wrap tr')) {
+                tkAutoSequence();
+            } else {
+                tkSyncAll();
+            }
+        });
+        tkReindexRows();
+        tkRecalcMaster();
+    }
+
+    function tkRemoveRow(btn) {
+        btn.closest('tr').remove();
+        tkReindexRows();
+        tkRecalcMaster();
+    }
+
+    // Rebuilds the real lines[] hidden inputs for every ticket row,
+    // mirroring Master Details into each one — called whenever Master or
+    // any row's own fields change, so the submitted payload always
+    // reflects the latest state. Mirrors how the Ticket Sale Invoice page
+    // cascades its own Master Details into every ticket row.
+    function tkSyncAll() {
+        const flights = Array.from(document.querySelectorAll('#tk-flights-table tbody tr')).map(r => ({
+            city: r.querySelector('.tk-f-city').value,
+            flight_no: r.querySelector('.tk-f-flightno').value,
+            dep_date: r.querySelector('.tk-f-depdate').value,
+            dep_time: r.querySelector('.tk-f-deptime').value,
+            arr_time: r.querySelector('.tk-f-arrtime').value,
+            fare_basis: r.querySelector('.tk-f-farebasis').value,
+        }));
+        const charges = Array.from(document.querySelectorAll('#tk-charges-table tbody tr'))
+            .map(r => ({
+                charge_type_id: r.querySelector('.tk-c-type').value,
+                value: r.querySelector('.tk-c-value').value,
+                computed_amount: r.querySelector('.tk-c-amount').value,
+            }))
+            .filter(c => c.charge_type_id);
+
+        document.querySelectorAll('#tk-tickets-wrap tr').forEach(row => {
+            row.querySelectorAll('.tk-hidden-field').forEach(el => el.remove());
+            const idx = row.dataset.lineIdx;
+            const fields = {
+                'service_type': 'ticket',
+                'supplier_id': document.getElementById('tk-supplier').value,
+                'charge_template_id': document.getElementById('tk-template').value,
+                'description': row.querySelector('.tk-row-name').value,
+                'currency': document.getElementById('tk-currency').value,
+                'exchange_rate': document.getElementById('tk-rate').value,
+                'receivable_f_amount': document.getElementById('tk-recv').value,
+                'payable_f_amount': document.getElementById('tk-pay').value,
+                'detail[pnr]': document.getElementById('tk-pnr').value,
+                'detail[gds]': document.getElementById('tk-gds').value,
+                'detail[airline]': document.getElementById('tk-airline').value,
+                'detail[ticket_type]': document.getElementById('tk-ticket-type').value,
+                'detail[issue_date]': document.getElementById('tk-issue-date').value,
+                'detail[sector]': document.getElementById('tk-sector').value,
+                'detail[tour_code]': document.getElementById('tk-tour-code').value,
+                'detail[ticket_no]': row.querySelector('.tk-row-ticketno').value,
+            };
+            Object.keys(fields).forEach(key => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.className = 'tk-hidden-field';
+                input.name = `lines[${idx}][${key}]`;
+                input.value = fields[key] ?? '';
+                row.appendChild(input);
+            });
+            flights.forEach((f, fi) => {
+                Object.keys(f).forEach(key => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.className = 'tk-hidden-field';
+                    input.name = `lines[${idx}][detail][flights][${fi}][${key}]`;
+                    input.value = f[key] ?? '';
+                    row.appendChild(input);
+                });
+            });
+            charges.forEach((c, ci) => {
+                Object.keys(c).forEach(key => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.className = 'tk-hidden-field';
+                    input.name = `lines[${idx}][charges][${ci}][${key}]`;
+                    input.value = c[key] ?? '';
+                    row.appendChild(input);
+                });
+            });
+        });
+    }
+
+    // ============ Invoice Summary tab: grouped by service type ============
     function recalcTotals() {
-        let totalRecv = 0, totalPay = 0, totalIncome = 0;
-        const rows = [];
+        const groups = {};
+        const pushRow = (type, label, currency, recv, pay, income) => {
+            groups[type] = groups[type] || { rows: [], recv: 0, pay: 0, income: 0 };
+            groups[type].rows.push({ label, currency, recv, pay, income });
+            groups[type].recv += recv;
+            groups[type].pay += pay;
+            groups[type].income += income;
+        };
+
         document.querySelectorAll('.line-card').forEach(card => {
+            const type = card.dataset.type;
             const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
             const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
             const pay = parseFloat(card.querySelector('.line-pay').value) || 0;
             let chargesTotal = 0;
             card.querySelectorAll('.charge-amount').forEach(el => chargesTotal += (parseFloat(el.value) || 0));
             const income = (recv * rate) - (pay * rate) + chargesTotal;
-            totalRecv += recv * rate;
-            totalPay += pay * rate;
-            totalIncome += income;
-
             const supplierSelect = card.querySelector('[name$="[supplier_id]"]');
-            const supplierLabel = supplierSelect.selectedOptions[0] ? supplierSelect.selectedOptions[0].textContent : '—';
-            rows.push(`<tr><td>${rows.length + 1}</td><td>${card.dataset.type}</td><td>${supplierLabel}</td><td>${card.querySelector('.line-currency').value}</td><td>${(recv*rate).toFixed(2)}</td><td>${(pay*rate).toFixed(2)}</td><td class="${income < 0 ? 'text-danger' : 'text-success'}">${income.toFixed(2)}</td></tr>`);
+            const supplierLabel = supplierSelect && supplierSelect.selectedOptions[0] ? supplierSelect.selectedOptions[0].textContent : '—';
+            pushRow(type, supplierLabel, card.querySelector('.line-currency').value, recv * rate, pay * rate, income);
         });
-        document.getElementById('summaryBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="7" class="text-center text-muted">No lines added yet.</td></tr>';
+
+        const tkRows = document.querySelectorAll('#tk-tickets-wrap tr');
+        if (tkRows.length) {
+            const rate = parseFloat(document.getElementById('tk-rate')?.value) || 0;
+            const recv = parseFloat(document.getElementById('tk-recv')?.value) || 0;
+            const pay = parseFloat(document.getElementById('tk-pay')?.value) || 0;
+            let chargesTotal = 0;
+            document.querySelectorAll('#tk-charges-table .tk-c-amount').forEach(el => chargesTotal += (parseFloat(el.value) || 0));
+            const incomeEach = (recv * rate) - (pay * rate) + chargesTotal;
+            tkRows.forEach(row => {
+                const name = row.querySelector('.tk-row-name').value || '—';
+                pushRow('ticket', name, document.getElementById('tk-currency').value, recv * rate, pay * rate, incomeEach);
+            });
+        }
+
+        const typeLabels = { ticket: 'Ticket', hotel: 'Hotel', transport: 'Transport', visa: 'Visa', other: 'Other Services' };
+        let html = '';
+        let totalRecv = 0, totalPay = 0, totalIncome = 0;
+        Object.keys(typeLabels).forEach(type => {
+            const g = groups[type];
+            if (!g) return;
+            html += `<tr class="table-light"><td colspan="7"><strong>${typeLabels[type]} Booking</strong></td></tr>`;
+            g.rows.forEach((r, i) => {
+                html += `<tr><td>${i + 1}</td><td>${typeLabels[type]}</td><td>${r.label}</td><td>${r.currency}</td><td>${r.recv.toFixed(2)}</td><td>${r.pay.toFixed(2)}</td><td class="${r.income < 0 ? 'text-danger' : 'text-success'}">${r.income.toFixed(2)}</td></tr>`;
+            });
+            html += `<tr class="fw-bold"><td colspan="4" class="text-end">${typeLabels[type]} Subtotal</td><td>${g.recv.toFixed(2)}</td><td>${g.pay.toFixed(2)}</td><td>${g.income.toFixed(2)}</td></tr>`;
+            totalRecv += g.recv; totalPay += g.pay; totalIncome += g.income;
+        });
+
+        document.getElementById('summaryBody').innerHTML = html || '<tr><td colspan="7" class="text-center text-muted">No lines added yet.</td></tr>';
         document.getElementById('totalReceivable').textContent = totalRecv.toFixed(2);
         document.getElementById('totalPayable').textContent = totalPay.toFixed(2);
         document.getElementById('totalIncome').textContent = totalIncome.toFixed(2);
+        recalcHotelTabTotal();
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -575,10 +1146,45 @@
             grouped[line.service_type].push(line);
         });
         Object.keys(grouped).forEach(type => {
-            if (document.getElementById('tpl-' + type)) {
+            if (type !== 'ticket' && document.getElementById('tpl-' + type)) {
                 grouped[type].forEach(line => addLineCard(type, line));
             }
         });
+
+        if (document.getElementById('tk-tickets-table')) {
+            const tkLines = grouped['ticket'] || [];
+            if (tkLines.length) {
+                const first = tkLines[0];
+                document.getElementById('tk-supplier').value = first.supplier_id || '';
+                document.getElementById('tk-template').value = first.charge_template_id || '';
+                document.getElementById('tk-currency').value = first.currency || 'PKR';
+                document.getElementById('tk-rate').value = first.exchange_rate ?? 1;
+                document.getElementById('tk-recv').value = first.receivable_f_amount ?? 0;
+                document.getElementById('tk-pay').value = first.payable_f_amount ?? 0;
+                const d = first.detail || {};
+                document.getElementById('tk-airline').value = d.airline || '';
+                document.getElementById('tk-gds').value = d.gds || '';
+                document.getElementById('tk-ticket-type').value = d.ticket_type || 'international';
+                document.getElementById('tk-issue-date').value = d.issue_date || '';
+                document.getElementById('tk-sector').value = d.sector || '';
+                document.getElementById('tk-tour-code').value = d.tour_code || '';
+                document.getElementById('tk-pnr').value = d.pnr || '';
+                (d.flights || []).forEach(f => tkAddFlightRow(f));
+                (first.charges || []).forEach(c => tkAddChargeRow(c));
+                tkLines.forEach(line => tkAddTicketRow(line));
+                if (window.jQuery) { $('#tk-supplier, #tk-template').trigger('change.select2'); }
+            } else {
+                tkAddTicketRow();
+            }
+
+            ['tk-supplier', 'tk-currency', 'tk-rate', 'tk-airline', 'tk-gds', 'tk-ticket-type', 'tk-issue-date', 'tk-sector', 'tk-tour-code', 'tk-pnr', 'tk-recv', 'tk-pay'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.addEventListener('input', tkRecalcMaster);
+                el.addEventListener('change', tkRecalcMaster);
+            });
+        }
+
         recalcTotals();
     });
 </script>
