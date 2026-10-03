@@ -518,7 +518,7 @@
                     <label class="form-label">Payable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
                 </div>
-                <div class="col-md-1 mb-2">
+                <div class="col-md-2 mb-2">
                     <label class="form-label">Currency</label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
