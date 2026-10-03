@@ -512,6 +512,10 @@
                     <label class="form-label">Payable Exch. Rate</label>
                     <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">PSF</label>
+                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
+                </div>
                 <div class="col-md-1 mb-2 text-end">
                     <label class="form-label d-block">&nbsp;</label>
                     <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
