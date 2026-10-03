@@ -102,9 +102,6 @@
               @can('charge_types.index')
               <li><a class="nav-link" href="{{ route('charge_types.index') }}">Charge Types</a></li>
               @endcan
-              @can('charge_templates.index')
-              <li><a class="nav-link" href="{{ route('charge_templates.index') }}">Charge Templates</a></li>
-              @endcan
               @can('airlines.index')
               <li><a class="nav-link" href="{{ route('airlines.index') }}">Airlines</a></li>
               @endcan
@@ -126,7 +123,7 @@
               @can('ticket_invoices.index')
               <li><a class="nav-link" href="{{ route('ticket_invoices.index') }}">Sale Invoice (Tickets)</a></li>
               @endcan
-              <li><a class="nav-link" href="{{ route('ticket_invoices.my_commission') }}">My Commission</a></li>
+              {{-- <li><a class="nav-link" href="{{ route('ticket_invoices.my_commission') }}">My Commission</a></li> --}}
               @can('tour_invoices.index')
               <li><a class="nav-link" href="{{ route('tour_invoices.index') }}">Tour Invoice</a></li>
               @endcan
