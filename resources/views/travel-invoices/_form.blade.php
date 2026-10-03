@@ -478,7 +478,7 @@
                     <label class="form-label">Booking Name <small class="field-note">(auto from Customer)</small></label>
                     <input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control hotel-booking-name">
                 </div>
-                <div class="col-md-1 mb-2">
+                <div class="col-md-2 mb-2">
                     <label class="form-label">Currency <small class="text-muted">(invoice)</small></label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
