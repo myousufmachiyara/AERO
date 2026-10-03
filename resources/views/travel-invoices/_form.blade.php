@@ -502,14 +502,14 @@
                     <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
                 </div>
                 <div class="col-md-2 mb-2">
+                    <label class="form-label">Receivable Exch. Rate</label>
+                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
+                </div>
+                <div class="col-md-2 mb-2">
                     <label class="form-label">Curreny</label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Receivable Exch. Rate</label>
-                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
             </div>
             <div class="row">
@@ -519,14 +519,14 @@
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
                 </div>
                 <div class="col-md-2 mb-2">
+                    <label class="form-label">Payable Exch. Rate</label>
+                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
+                </div>
+                <div class="col-md-2 mb-2">
                     <label class="form-label">Currency</label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Payable Exch. Rate</label>
-                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">PSF</label>
