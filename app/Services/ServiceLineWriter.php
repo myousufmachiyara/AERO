@@ -149,6 +149,7 @@ class ServiceLineWriter
                     'service_line_id' => $line->id,
                     'hotel_id' => $detail['hotel_id'] ?? null,
                     'hotel_room_id' => $detail['hotel_room_id'] ?? null,
+                    'room_view_id' => $detail['room_view_id'] ?? null,
                     'check_in' => $detail['check_in'] ?? null,
                     'check_out' => $detail['check_out'] ?? null,
                     'nights' => $detail['nights'] ?? 0,

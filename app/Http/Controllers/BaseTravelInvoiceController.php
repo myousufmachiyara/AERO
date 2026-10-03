@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\ChargeTemplate;
 use App\Models\ChargeType;
+use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\Hotel;
 use App\Models\HotelRoom;
 use App\Models\Quotation;
+use App\Models\RoomView;
 use App\Models\Service;
 use App\Models\Supplier;
 use App\Models\TravelInvoice;
@@ -283,10 +285,12 @@ abstract class BaseTravelInvoiceController extends Controller
         return [
             'customers' => Customer::where('is_active', true)->orderBy('name')->get(),
             'suppliers' => Supplier::where('is_active', true)->orderBy('name')->get(),
-            'chargeTemplates' => ChargeTemplate::where('is_active', true)->get(),
+            'chargeTemplates' => ChargeTemplate::where('is_active', true)->with('items')->get(),
             'chargeTypes' => ChargeType::where('is_active', true)->orderBy('name')->get(),
             'hotels' => Hotel::where('is_active', true)->with('rooms')->orderBy('name')->get(),
             'hotelRooms' => HotelRoom::where('is_active', true)->get(),
+            'roomViews' => RoomView::where('is_active', true)->orderBy('name')->get(),
+            'currencies' => Currency::where('is_active', true)->orderBy('code')->get(),
             'vehicles' => Vehicle::where('is_active', true)->orderBy('name')->get(),
             'visaTypes' => VisaType::where('is_active', true)->orderBy('name')->get(),
             'services' => Service::where('is_active', true)->orderBy('name')->get(),
@@ -352,6 +356,7 @@ abstract class BaseTravelInvoiceController extends Controller
             'lines.*.detail.flights.*.fare_basis' => 'nullable|string|max:50',
             'lines.*.detail.hotel_id' => 'nullable|exists:hotels,id',
             'lines.*.detail.hotel_room_id' => 'nullable|exists:hotel_rooms,id',
+            'lines.*.detail.room_view_id' => 'nullable|exists:room_views,id',
             'lines.*.detail.check_in' => 'nullable|date',
             'lines.*.detail.check_out' => 'nullable|date',
             'lines.*.detail.nights' => 'nullable|integer|min:0',

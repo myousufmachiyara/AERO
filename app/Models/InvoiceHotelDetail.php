@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class InvoiceHotelDetail extends Model
 {
     protected $fillable = [
-        'service_line_id', 'hotel_id', 'hotel_room_id', 'check_in', 'check_out',
+        'service_line_id', 'hotel_id', 'hotel_room_id', 'room_view_id', 'check_in', 'check_out',
         'nights', 'room_qty', 'extra_bed_qty', 'booking_name',
     ];
 
@@ -29,5 +29,10 @@ class InvoiceHotelDetail extends Model
     public function hotelRoom()
     {
         return $this->belongsTo(HotelRoom::class);
+    }
+
+    public function roomView()
+    {
+        return $this->belongsTo(RoomView::class);
     }
 }

@@ -70,6 +70,7 @@ class DatabaseSeeder extends Seeder
             'room_views',
             'vehicles',
             'visa_types',
+            'currencies',
             'charge_types',
             'charge_templates',
             'airlines',
@@ -223,6 +224,15 @@ class DatabaseSeeder extends Seeder
             ['id' => 2, 'name' => 'Umrah',    'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 3, 'name' => 'Work',     'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
             ['id' => 4, 'name' => 'Family',   'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
+        ]);
+
+        \App\Models\Currency::insert([
+            ['id' => 1, 'code' => 'PKR', 'name' => 'Pakistani Rupee', 'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 2, 'code' => 'USD', 'name' => 'US Dollar',       'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 3, 'code' => 'SAR', 'name' => 'Saudi Riyal',     'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 4, 'code' => 'AED', 'name' => 'UAE Dirham',      'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 5, 'code' => 'GBP', 'name' => 'British Pound',   'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
+            ['id' => 6, 'code' => 'EUR', 'name' => 'Euro',            'is_active' => true, 'created_at' => $now, 'updated_at' => $now],
         ]);
 
         \App\Models\ChargeType::insert([
