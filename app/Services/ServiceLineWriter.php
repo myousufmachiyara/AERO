@@ -58,6 +58,23 @@ class ServiceLineWriter
             $chargesTotal = $this->chargesTotal($chargesInput);
 
             $line->recalculate($chargesTotal);
+
+            // Transport tab rework: a transport line has no single
+            // lines[idx][exchange_rate] field (Receivable/Payable each
+            // carry their own rate instead, same as Hotel) — so the
+            // generic recalculate() above would wrongly convert at rate 1.
+            // Override receivable/payable/income here from the detail's
+            // own rates so the stored totals (Show page, Summary tab)
+            // match the dual-currency PSF shown live on the Transport tab.
+            if ($row['service_type'] === 'transport') {
+                $detail = $row['detail'] ?? [];
+                $recvRate = (float) ($detail['receivable_exchange_rate'] ?? 1);
+                $payRate = (float) ($detail['payable_exchange_rate'] ?? 1);
+                $line->receivable_l_amount = round(((float) ($row['receivable_f_amount'] ?? 0)) * $recvRate, 2);
+                $line->payable_l_amount = round(((float) ($row['payable_f_amount'] ?? 0)) * $payRate, 2);
+                $line->income_l_amount = round($line->receivable_l_amount - $line->payable_l_amount + $chargesTotal, 2);
+            }
+
             $linkable->serviceLines()->save($line);
 
             $this->syncCharges($line, $chargesInput);
@@ -188,11 +205,24 @@ class ServiceLineWriter
                 break;
 
             case 'transport':
+                // Transport tab rework: Reference No / Category are now
+                // real, saved fields (unlike Hotel's Category, kept
+                // informational-only), plus the same dual receivable/
+                // payable currency+rate and agent commission fields as
+                // Hotel's "Charges Details" section.
                 InvoiceTransportDetail::create([
                     'service_line_id' => $line->id,
                     'vehicle_id' => $detail['vehicle_id'] ?? null,
                     'sector' => $detail['sector'] ?? null,
                     'booking_name' => $detail['booking_name'] ?? null,
+                    'reference_no' => $detail['reference_no'] ?? null,
+                    'category' => $detail['category'] ?? null,
+                    'receivable_currency' => $detail['receivable_currency'] ?? 'PKR',
+                    'receivable_exchange_rate' => $detail['receivable_exchange_rate'] ?? 1,
+                    'payable_currency' => $detail['payable_currency'] ?? 'PKR',
+                    'payable_exchange_rate' => $detail['payable_exchange_rate'] ?? 1,
+                    'agent_commission_percent' => $detail['agent_commission_percent'] ?? 0,
+                    'agent_commission_amount' => $detail['agent_commission_amount'] ?? 0,
                 ]);
                 break;
 

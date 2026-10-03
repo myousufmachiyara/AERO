@@ -58,7 +58,15 @@
                     break;
                 case 'transport':
                     if ($line->transportDetail) {
-                        $detail = $line->transportDetail->only(['vehicle_id', 'sector', 'booking_name']);
+                        // reference_no/category are now real saved fields,
+                        // plus the same dual receivable/payable
+                        // currency+rate and agent commission fields as
+                        // Hotel's "Charges Details" section.
+                        $detail = $line->transportDetail->only([
+                            'vehicle_id', 'sector', 'booking_name', 'reference_no', 'category',
+                            'receivable_currency', 'receivable_exchange_rate', 'payable_currency', 'payable_exchange_rate',
+                            'agent_commission_percent', 'agent_commission_amount',
+                        ]);
                     }
                     break;
                 case 'visa':
@@ -442,7 +450,7 @@
         <div class="line-card" data-type="hotel" data-charge-idx="0" data-room-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
 
-            <h4 class="fw-bold text-uppercase text-dark mb-2">Booking Details</h4>
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Booking Details</h6>
             <div class="row">
                 <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control hotel-checkin" onchange="syncHotelNights(this.closest('.line-card'))"></div>
                 <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control hotel-checkout" onchange="syncHotelNights(this.closest('.line-card'))"></div>
@@ -464,7 +472,7 @@
                     <label class="form-label">Category <small class="field-note">(not saved yet)</small></label>
                     <select class="form-control not-persisted-field">
                         @foreach(['umrah' => 'Umrah', 'hajj' => 'Hajj', 'holiday' => 'Holiday', 'tour' => 'Tour', 'visitor' => 'Visitor'] as $val => $lbl)
-                        <option value="{{ $val }}">{{ $lbl }}</option>  
+                        <option value="{{ $val }}">{{ $lbl }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -494,9 +502,26 @@
                     </select>
                 </div>
             </div>
- 
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Template <small class="field-note">(optional — auto-fills Currency/Charges)</small></label>
+                    <select class="form-control select2-js template-select" onchange="onTemplateChange(this)">
+                        <option value="">— None —</option>
+                        @foreach($chargeTemplatesByType->get('hotel', collect()) as $ct)
+                        <option value="{{ $ct->id }}"
+                            data-currency="{{ $ct->default_currency }}"
+                            data-rate="{{ $ct->default_exchange_rate }}"
+                            data-items='@json($ct->items->map(fn ($it) => ["charge_type_id" => $it->charge_type_id, "value" => (float) $it->value])->values())'>
+                            {{ $ct->name }} ({{ optional($ct->effective_date)->format('d/m/Y') }})
+                        </option>
+                        @endforeach
+                    </select>
+                    <input type="hidden" name="lines[__IDX__][charge_template_id]" class="template-id-field">
+                </div>
+            </div>
+
             <hr class="my-2">
-            <h4 class="fw-bold text-uppercase mb-2 text-dark">Room Details</h4>
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Room Details</h6>
             <table class="table table-bordered table-sm mini-table hotel-rooms-table">
                 <thead><tr><th>Room Type</th><th>Room View</th><th width="12%">No. of Room</th><th width="16%">Rate</th><th width="16%">Total Amount</th><th width="36"></th></tr></thead>
                 <tbody></tbody>
@@ -525,7 +550,7 @@
             <hr class="my-2">
             <div class="row">
                 <div class="col-md-6">
-                    <h4 class="fw-bold text-dark text-uppercase mb-2">Charges Details</h4>
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Receivables</h6>
                     <div class="row">
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Receivable (F)</label>
@@ -607,9 +632,176 @@
     </template>
     @endif
 
+    {{-- ============ Transport: dedicated block (same 3-part treatment as Hotel) ============
+         1. Transport Details — Supplier / Booking Name / Currency / Reference No / Category
+         2. Vehicle Details — Vehicle / Sector / Charges (Other Charges / Discount mini-table)
+         3. Charges Details — same dual receivable/payable currency+rate, Agent
+            Commission %, and PSF formula as Hotel's Receivables/Payables/PSF.
+
+         Judgment calls made here (flagged — easy to change if not wanted):
+           - Reference No and Category are real, saved fields this round
+             (unlike Hotel's Category, which stayed an informational,
+             not-saved dropdown) — the client's field list named them
+             alongside Supplier/Booking Name/Currency as core Transport
+             Details, not as "not saved yet" placeholders like the old
+             Transporter/Package/Inventory fields that were removed.
+           - Category is a free-text field, not a fixed dropdown (Transport
+             has no equivalent to Hotel's umrah/hajj/holiday/tour/visitor list).
+           - "Vehicle details (vehicle, section, charges)" — "charges" here
+             is read as the existing Other Charges/Discount mini-table
+             (SPO/WHT/COM/PSF/Tax...), placed in this section; the full
+             dual-currency/commission/PSF math lives in its own "Charges
+             Details" section per point 6, matching Hotel's Receivables/
+             Payables/Commission/PSF block exactly.
+           - Template dropdown, Transporter, Package, and Inventory fields
+             are removed per point 5 (Template's auto-fill-currency/charges
+             role is no longer available on this tab — Currency and Charges
+             are now set directly in Transport/Charges Details).
+    --}}
+    @if(isset($activeTabs['transport']))
+    <div class="tab-pane fade" id="tab-transport">
+        <div id="cards-transport"></div>
+        <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('transport')">+ Add Transport Line</button>
+        <div class="card mt-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <span class="text-muted">Transport lines total receivable (local currency)</span>
+                <h5 class="mb-0" id="transport-tab-total-receivable">0.00</h5>
+            </div>
+        </div>
+    </div>
+
+    <template id="tpl-transport">
+        <div class="line-card" data-type="transport" data-charge-idx="0">
+            <input type="hidden" name="lines[__IDX__][service_type]" value="transport">
+
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Transport Details</h6>
+            <div class="row">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Supplier</label>
+                    <select name="lines[__IDX__][supplier_id]" class="form-control select2-js line-field">
+                        <option value="">— None —</option>
+                        @foreach($suppliers as $s)<option value="{{ $s->id }}">{{ $s->is_flagged ? '⚠ ' : '' }}{{ $s->name }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Booking Name</label>
+                    <input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Currency <small class="text-muted">(invoice)</small></label>
+                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
+                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Reference No</label>
+                    <input type="text" name="lines[__IDX__][detail][reference_no]" class="form-control">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Category</label>
+                    <input type="text" name="lines[__IDX__][detail][category]" class="form-control">
+                </div>
+            </div>
+
+            <hr class="my-2">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Vehicle Details</h6>
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Vehicle</label>
+                    <select name="lines[__IDX__][detail][vehicle_id]" class="form-control select2-js">
+                        <option value="">— None —</option>
+                        @foreach($vehicles as $v)<option value="{{ $v->id }}">{{ $v->name }} ({{ $v->type }})</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-4 mb-2"><label class="form-label">Sector</label><input type="text" name="lines[__IDX__][detail][sector]" class="form-control"></div>
+            </div>
+            <div class="mb-1">
+                <label class="form-label d-block">Charges <small class="field-note">(informational — not netted into PSF below)</small></label>
+                <table class="table table-bordered table-sm mini-table charges-table">
+                    <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addChargeRow(this.closest('.line-card'))">+ Add Charge</button>
+            </div>
+            <template class="charge-tpl">
+                <tr>
+                    <td>
+                        <select name="lines[__IDX__][charges][__CIDX__][charge_type_id]" class="form-control form-control-sm charge-type" onchange="onChargeTypeChange(this)">
+                            <option value="">— Select —</option>
+                            @foreach($chargeTypes as $ct)<option value="{{ $ct->id }}" data-calc="{{ $ct->calculation_type }}" data-default="{{ $ct->default_value }}">{{ $ct->name }}</option>@endforeach
+                        </select>
+                    </td>
+                    <td><input type="number" step="any" name="lines[__IDX__][charges][__CIDX__][value]" class="form-control form-control-sm charge-value" value="0"></td>
+                    <td><input type="number" step="any" name="lines[__IDX__][charges][__CIDX__][computed_amount]" class="form-control form-control-sm charge-amount" value="0"></td>
+                    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); recalcCard(this.closest('.line-card'));"><i class="fas fa-times"></i></button></td>
+                </tr>
+            </template>
+
+            <hr class="my-2">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Charges Details</h6>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Receivable (F)</label>
+                            <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0" oninput="recalcTransportFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Exch. Rate</label>
+                            <input type="number" step="any" name="lines[__IDX__][detail][receivable_exchange_rate]" class="form-control transport-recv-rate" value="1" oninput="recalcTransportFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Currency</label>
+                            <select name="lines[__IDX__][detail][receivable_currency]" class="form-control transport-recv-currency" onchange="recalcTransportFinance(this.closest('.line-card'))">
+                                @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-end"><span class="text-muted">Receivable Amount (Converted):</span> <span class="fw-bold transport-recv-converted">0.00</span></div>
+                </div>
+                <div class="col-md-6">
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Payable (F)</label>
+                            <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0" oninput="recalcTransportFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Exch. Rate</label>
+                            <input type="number" step="any" name="lines[__IDX__][detail][payable_exchange_rate]" class="form-control transport-pay-rate" value="1" oninput="recalcTransportFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Currency</label>
+                            <select name="lines[__IDX__][detail][payable_currency]" class="form-control transport-pay-currency" onchange="recalcTransportFinance(this.closest('.line-card'))">
+                                @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-end"><span class="text-muted">Payable Amount (Converted):</span> <span class="fw-bold transport-pay-converted">0.00</span></div>
+                </div>
+            </div>
+
+            <hr class="my-2">
+            <div class="row align-items-end">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Agent Commission %</label>
+                    <input type="number" step="any" min="0" max="100" name="lines[__IDX__][detail][agent_commission_percent]" class="form-control transport-commission-pct" value="0" oninput="recalcTransportFinance(this.closest('.line-card'))">
+                    <input type="hidden" name="lines[__IDX__][detail][agent_commission_amount]" class="transport-commission-amount-field" value="0">
+                </div>
+                <div class="col-md-3 mb-2"><span class="text-muted">Commission Amount:</span> <span class="fw-bold transport-commission-amount-display">0.00</span></div>
+                <div class="col-md-4 mb-2 text-end">
+                    <span class="text-muted">PSF (Receivable − Payable, local):</span> <span class="line-income fw-bold">0.00</span>
+                </div>
+                <div class="col-md-2 mb-2 text-end">
+                    <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+        </div>
+    </template>
+    @endif
+
     {{-- ============ One tab + one <template> per remaining service type ============ --}}
     @foreach($activeTabs as $type => $label)
-    @continue($type === 'ticket' || $type === 'hotel')
+    @continue($type === 'ticket' || $type === 'hotel' || $type === 'transport')
     <div class="tab-pane fade" id="tab-{{ $type }}">
         <div id="cards-{{ $type }}"></div>
         <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('{{ $type }}')">+ Add {{ $label }} Line</button>
@@ -678,25 +870,12 @@
                  vanish if ever routed through addLineCard() by mistake. --}}
             @endif
 
+            {{-- Dead branch: Transport is now rendered by its own dedicated
+                 3-section block above (tpl-transport), never through this
+                 generic per-line template — left here only so a stray
+                 existing transport-type ServiceLine wouldn't silently
+                 vanish if ever routed through addLineCard() by mistake. --}}
             @if($type === 'transport')
-            <div class="row">
-                <div class="col-md-4 mb-2">
-                    <label class="form-label">Vehicle</label>
-                    <select name="lines[__IDX__][detail][vehicle_id]" class="form-control select2-js">
-                        <option value="">— None —</option>
-                        @foreach($vehicles as $v)<option value="{{ $v->id }}">{{ $v->name }} ({{ $v->type }})</option>@endforeach
-                    </select>
-                </div>
-                <div class="col-md-4 mb-2"><label class="form-label">Sector</label><input type="text" name="lines[__IDX__][detail][sector]" class="form-control"></div>
-                <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
-            </div>
-            <div class="row">
-                <div class="col-md-3 mb-2"><label class="form-label">Transporter <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Package <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Inventory <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Reference No <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Category <small class="field-note">(not saved yet)</small></label><input type="text" class="form-control not-persisted-field"></div>
-            </div>
             @endif
 
             @if($type === 'visa')
@@ -900,6 +1079,42 @@
         recalcTotals();
     }
 
+    // Transport tab rework: "charges details ... follow same as hotel tab
+    // charges section" — identical dual-currency/PSF/commission math as
+    // recalcHotelFinance above, duplicated (not shared) so Hotel's own
+    // markup/classes/behavior stay untouched.
+    function recalcTransportFinance(card) {
+        if (!card) return;
+        const recv = parseFloat(card.querySelector('.line-recv')?.value) || 0;
+        const recvRate = parseFloat(card.querySelector('.transport-recv-rate')?.value) || 0;
+        const pay = parseFloat(card.querySelector('.line-pay')?.value) || 0;
+        const payRate = parseFloat(card.querySelector('.transport-pay-rate')?.value) || 0;
+        const commissionPct = parseFloat(card.querySelector('.transport-commission-pct')?.value) || 0;
+
+        const recvConverted = recv * recvRate;
+        const payConverted = pay * payRate;
+        const psf = recvConverted - payConverted;
+        const commissionAmount = psf * commissionPct / 100;
+
+        const recvConvertedEl = card.querySelector('.transport-recv-converted');
+        if (recvConvertedEl) recvConvertedEl.textContent = recvConverted.toFixed(2);
+        const payConvertedEl = card.querySelector('.transport-pay-converted');
+        if (payConvertedEl) payConvertedEl.textContent = payConverted.toFixed(2);
+
+        const psfEl = card.querySelector('.line-income');
+        if (psfEl) {
+            psfEl.textContent = psf.toFixed(2);
+            psfEl.className = 'line-income fw-bold ' + (psf < 0 ? 'negative' : 'positive');
+        }
+
+        const commissionDisplayEl = card.querySelector('.transport-commission-amount-display');
+        if (commissionDisplayEl) commissionDisplayEl.textContent = commissionAmount.toFixed(2);
+        const commissionFieldEl = card.querySelector('.transport-commission-amount-field');
+        if (commissionFieldEl) commissionFieldEl.value = commissionAmount.toFixed(2);
+
+        recalcTotals();
+    }
+
     function onTemplateChange(select) {
         const card = select.closest('.line-card');
         const opt = select.options[select.selectedIndex];
@@ -934,9 +1149,10 @@
         const value = parseFloat(row.querySelector('.charge-value').value) || 0;
         const amountInput = row.querySelector('.charge-amount');
         if (opt && opt.dataset.calc === 'percentage') {
-            // Hotel cards have no single `.line-rate` — fall back to the
-            // Receivable exchange rate for the percentage base there.
-            const rateEl = card.querySelector('.line-rate') || card.querySelector('.hotel-recv-rate');
+            // Hotel/Transport cards have no single `.line-rate` — fall back
+            // to that card's own Receivable exchange rate for the
+            // percentage base instead.
+            const rateEl = card.querySelector('.line-rate') || card.querySelector('.hotel-recv-rate') || card.querySelector('.transport-recv-rate');
             const rate = parseFloat(rateEl?.value) || 0;
             const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
             amountInput.value = ((recv * rate) * value / 100).toFixed(2);
@@ -1060,11 +1276,15 @@
     }
 
     function recalcCard(card) {
-        // Hotel cards use their own dual-currency PSF calculation instead
-        // (no single `.line-rate`, and PSF excludes charges per the
+        // Hotel/Transport cards use their own dual-currency PSF calculation
+        // instead (no single `.line-rate`, and PSF excludes charges per the
         // client's exact "PSF = receivable − payable" formula).
         if (card.dataset.type === 'hotel') {
             recalcHotelFinance(card);
+            return;
+        }
+        if (card.dataset.type === 'transport') {
+            recalcTransportFinance(card);
             return;
         }
         const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
@@ -1086,6 +1306,18 @@
         document.querySelectorAll('#cards-hotel .line-card').forEach(card => {
             const recv = parseFloat(card.querySelector('.line-recv')?.value) || 0;
             const rate = parseFloat(card.querySelector('.hotel-recv-rate')?.value) || 0;
+            total += recv * rate;
+        });
+        totalEl.textContent = total.toFixed(2);
+    }
+
+    function recalcTransportTabTotal() {
+        const totalEl = document.getElementById('transport-tab-total-receivable');
+        if (!totalEl) return;
+        let total = 0;
+        document.querySelectorAll('#cards-transport .line-card').forEach(card => {
+            const recv = parseFloat(card.querySelector('.line-recv')?.value) || 0;
+            const rate = parseFloat(card.querySelector('.transport-recv-rate')?.value) || 0;
             total += recv * rate;
         });
         totalEl.textContent = total.toFixed(2);
@@ -1324,13 +1556,15 @@
             const recvAmt = parseFloat(card.querySelector('.line-recv')?.value) || 0;
             const payAmt = parseFloat(card.querySelector('.line-pay')?.value) || 0;
             let recv, pay, income;
-            if (type === 'hotel') {
+            if (type === 'hotel' || type === 'transport') {
                 // Dual currency: Receivable and Payable each convert with
                 // their own exchange rate, and PSF (shown here as the
                 // row's "Income") excludes charges per the client's exact
-                // "PSF = receivable − payable" formula.
-                const recvRate = parseFloat(card.querySelector('.hotel-recv-rate')?.value) || 0;
-                const payRate = parseFloat(card.querySelector('.hotel-pay-rate')?.value) || 0;
+                // "PSF = receivable − payable" formula. Same rule for
+                // Transport as Hotel, just under its own `.transport-*` classes.
+                const prefix = type === 'hotel' ? 'hotel' : 'transport';
+                const recvRate = parseFloat(card.querySelector(`.${prefix}-recv-rate`)?.value) || 0;
+                const payRate = parseFloat(card.querySelector(`.${prefix}-pay-rate`)?.value) || 0;
                 recv = recvAmt * recvRate;
                 pay = payAmt * payRate;
                 income = recv - pay;
@@ -1380,6 +1614,7 @@
         document.getElementById('totalPayable').textContent = totalPay.toFixed(2);
         document.getElementById('totalIncome').textContent = totalIncome.toFixed(2);
         recalcHotelTabTotal();
+        recalcTransportTabTotal();
     }
 
     document.addEventListener('DOMContentLoaded', function () {
