@@ -381,20 +381,205 @@
     </div>
     @endif
 
-    {{-- ============ One tab + one <template> per remaining service type ============ --}}
-    @foreach($activeTabs as $type => $label)
-    @continue($type === 'ticket')
-    <div class="tab-pane fade" id="tab-{{ $type }}">
-        <div id="cards-{{ $type }}"></div>
-        <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('{{ $type }}')">+ Add {{ $label }} Line</button>
-        @if($type === 'hotel')
+    {{--
+        ============ Hotel tab: dedicated layout ============
+        Pulled out of the generic per-type loop below, same treatment as
+        Ticket above, because Hotel's required field order (per client
+        spec) doesn't match the shared generic header — here "costing
+        fields" (Template/Currency/Exchange Rate/Payable/Receivable/
+        Income) move to the END, after the room-level details and the
+        Room/Extra Bed charge rates, instead of sitting at the top like
+        every other tab. The Pax picker has been removed entirely per
+        client instruction.
+
+        Two small judgment calls made here, flagged for review:
+          1. "Template" isn't in the client's literal field list, but is
+             kept (grouped with the other costing fields, right before
+             Currency) because it auto-fills Currency/Rate/Charges from a
+             saved Charge Template — the same convenience every other tab
+             has. Drop it if that's not wanted here.
+          2. "Booking Name" also isn't in the literal list, but is kept
+             (next to Remark) rather than deleted outright: it's a real
+             saved field (detail.booking_name), and removing its input
+             would silently blank that value out of any existing hotel
+             line the next time it's saved, since the save logic rebuilds
+             the whole detail row from whatever the form submits. Safe to
+             drop later once confirmed no one is relying on it.
+    --}}
+    @if(isset($activeTabs['hotel']))
+    <div class="tab-pane fade" id="tab-hotel">
+        <div id="cards-hotel"></div>
+        <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('hotel')">+ Add Hotel Line</button>
         <div class="card mt-3">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <span class="text-muted">Hotel lines total receivable (local currency)</span>
                 <h5 class="mb-0" id="hotel-tab-total-receivable">0.00</h5>
             </div>
         </div>
-        @endif
+    </div>
+
+    <template id="tpl-hotel">
+        <div class="line-card" data-type="hotel" data-charge-idx="0">
+            <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
+
+            <div class="row">
+                <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control"></div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Supplier</label>
+                    <select name="lines[__IDX__][supplier_id]" class="form-control select2-js line-field">
+                        <option value="">— None —</option>
+                        @foreach($suppliers as $s)<option value="{{ $s->id }}">{{ $s->is_flagged ? '⚠ ' : '' }}{{ $s->name }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Hotel Name</label>
+                    <select name="lines[__IDX__][detail][hotel_id]" class="form-control select2-js hotel-select" onchange="onHotelChange(this)">
+                        <option value="">— None —</option>
+                        @foreach($hotels as $h)<option value="{{ $h->id }}">{{ $h->name }} ({{ $h->city }})</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Room Type</label>
+                    <select name="lines[__IDX__][detail][hotel_room_id]" class="form-control select2-js room-select">
+                        <option value="">— Select Hotel First —</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Room View</label>
+                    <select name="lines[__IDX__][detail][room_view_id]" class="form-control select2-js">
+                        <option value="">— None —</option>
+                        @foreach($roomViews as $rv)<option value="{{ $rv->id }}">{{ $rv->name }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2"><label class="form-label">No. of Nights</label><input type="number" min="0" name="lines[__IDX__][detail][nights]" class="form-control hotel-nights" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Costing Type <small class="field-note">(not saved yet)</small></label>
+                    <select class="form-control not-persisted-field">
+                        <option value="per_pax">Per Pax</option>
+                        <option value="per_room" selected>Per Room</option>
+                        <option value="per_bed">Per Bed</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2"><label class="form-label">No. of Room</label><input type="number" min="0" name="lines[__IDX__][detail][room_qty]" class="form-control hotel-room-qty" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Category <small class="field-note">(not saved yet)</small></label>
+                    <select class="form-control not-persisted-field">
+                        @foreach(['umrah' => 'Umrah', 'hajj' => 'Hajj', 'holiday' => 'Holiday', 'tour' => 'Tour', 'visitor' => 'Visitor'] as $val => $lbl)
+                        <option value="{{ $val }}">{{ $lbl }}</option>
+                        @endforeach
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Booking Status<span class="text-danger">*</span> <small class="field-note">(not saved yet)</small></label>
+                    <select class="form-control not-persisted-field">
+                        <option value="confirmed" selected>Confirmed</option>
+                        <option value="pending">Pending</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="col-md-5 mb-2"><label class="form-label">Remark</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
+                <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
+            </div>
+
+            <hr class="my-2">
+            <div class="row">
+                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">receivable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">payable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed Qty</label><input type="number" min="0" name="lines[__IDX__][detail][extra_bed_qty]" class="form-control hotel-bed-qty" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">receivable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">payable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
+            </div>
+            <div class="row">
+                <div class="col-md-8 mb-2 form-check">
+                    <input type="checkbox" class="form-check-input hotel-auto-update" onchange="recalcHotelComponents(this.closest('.line-card'))" checked>
+                    <label class="form-check-label">Auto Update Receivable/Payable (F) below from the Room/Extra Bed charges</label>
+                </div>
+            </div>
+
+            <hr class="my-2">
+            <div class="row">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Template <small class="field-note">(optional — auto-fills Currency/Rate/Charges)</small></label>
+                    <select class="form-control select2-js template-select" onchange="onTemplateChange(this)">
+                        <option value="">— None —</option>
+                        @foreach($chargeTemplatesByType->get('hotel', collect()) as $ct)
+                        <option value="{{ $ct->id }}"
+                            data-currency="{{ $ct->default_currency }}"
+                            data-rate="{{ $ct->default_exchange_rate }}"
+                            data-items='@json($ct->items->map(fn ($it) => ["charge_type_id" => $it->charge_type_id, "value" => (float) $it->value])->values())'>
+                            {{ $ct->name }} ({{ optional($ct->effective_date)->format('d/m/Y') }})
+                        </option>
+                        @endforeach
+                    </select>
+                    <input type="hidden" name="lines[__IDX__][charge_template_id]" class="template-id-field">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Currency</label>
+                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
+                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Exch. Rate</label>
+                    <input type="number" step="any" name="lines[__IDX__][exchange_rate]" class="form-control line-rate line-field" value="1">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Payable (F)</label>
+                    <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Receivable (F)</label>
+                    <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
+                </div>
+                <div class="col-md-1 mb-2 text-end">
+                    <label class="form-label d-block">&nbsp;</label>
+                    <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12 mb-2 text-end">
+                    <span class="text-muted">Income (Local):</span> <span class="line-income fw-bold">0.00</span>
+                </div>
+            </div>
+
+            <div class="mb-1">
+                <label class="form-label d-block">Other Charges / Discount (SPO / WHT / COM / PSF / Tax ...)</label>
+                <table class="table table-bordered table-sm mini-table charges-table">
+                    <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addChargeRow(this.closest('.line-card'))">+ Add Charge</button>
+            </div>
+            <template class="charge-tpl">
+                <tr>
+                    <td>
+                        <select name="lines[__IDX__][charges][__CIDX__][charge_type_id]" class="form-control form-control-sm charge-type" onchange="onChargeTypeChange(this)">
+                            <option value="">— Select —</option>
+                            @foreach($chargeTypes as $ct)<option value="{{ $ct->id }}" data-calc="{{ $ct->calculation_type }}" data-default="{{ $ct->default_value }}">{{ $ct->name }}</option>@endforeach
+                        </select>
+                    </td>
+                    <td><input type="number" step="any" name="lines[__IDX__][charges][__CIDX__][value]" class="form-control form-control-sm charge-value" value="0"></td>
+                    <td><input type="number" step="any" name="lines[__IDX__][charges][__CIDX__][computed_amount]" class="form-control form-control-sm charge-amount" value="0"></td>
+                    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); recalcCard(this.closest('.line-card'));"><i class="fas fa-times"></i></button></td>
+                </tr>
+            </template>
+        </div>
+    </template>
+    @endif
+
+    {{-- ============ One tab + one <template> per remaining service type ============ --}}
+    @foreach($activeTabs as $type => $label)
+    @continue($type === 'ticket' || $type === 'hotel')
+    <div class="tab-pane fade" id="tab-{{ $type }}">
+        <div id="cards-{{ $type }}"></div>
+        <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('{{ $type }}')">+ Add {{ $label }} Line</button>
     </div>
 
     <template id="tpl-{{ $type }}">
@@ -451,83 +636,6 @@
                     <span class="text-muted">Income (Local):</span> <span class="line-income fw-bold">0.00</span>
                 </div>
             </div>
-
-            @if($type === 'hotel')
-            <div class="row">
-                <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control"></div>
-                <div class="col-md-3 mb-2">
-                    <label class="form-label">Hotel Name</label>
-                    <select name="lines[__IDX__][detail][hotel_id]" class="form-control select2-js hotel-select" onchange="onHotelChange(this)">
-                        <option value="">— None —</option>
-                        @foreach($hotels as $h)<option value="{{ $h->id }}">{{ $h->name }} ({{ $h->city }})</option>@endforeach
-                    </select>
-                </div>
-                <div class="col-md-3 mb-2">
-                    <label class="form-label">Room Type</label>
-                    <select name="lines[__IDX__][detail][hotel_room_id]" class="form-control select2-js room-select">
-                        <option value="">— Select Hotel First —</option>
-                    </select>
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Room View</label>
-                    <select name="lines[__IDX__][detail][room_view_id]" class="form-control select2-js">
-                        <option value="">— None —</option>
-                        @foreach($roomViews as $rv)<option value="{{ $rv->id }}">{{ $rv->name }}</option>@endforeach
-                    </select>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-2 mb-2"><label class="form-label">No. of Nights</label><input type="number" min="0" name="lines[__IDX__][detail][nights]" class="form-control hotel-nights" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Costing Type <small class="field-note">(not saved yet)</small></label>
-                    <select class="form-control not-persisted-field">
-                        <option value="per_pax">Per Pax</option>
-                        <option value="per_room" selected>Per Room</option>
-                        <option value="per_bed">Per Bed</option>
-                    </select>
-                </div>
-                <div class="col-md-2 mb-2"><label class="form-label">No. of Room</label><input type="number" min="0" name="lines[__IDX__][detail][room_qty]" class="form-control hotel-room-qty" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Category <small class="field-note">(not saved yet)</small></label>
-                    <select class="form-control not-persisted-field">
-                        @foreach(['umrah' => 'Umrah', 'hajj' => 'Hajj', 'holiday' => 'Holiday', 'tour' => 'Tour', 'visitor' => 'Visitor'] as $val => $lbl)
-                        <option value="{{ $val }}">{{ $lbl }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Booking Status<span class="text-danger">*</span> <small class="field-note">(not saved yet)</small></label>
-                    <select class="form-control not-persisted-field">
-                        <option value="confirmed" selected>Confirmed</option>
-                        <option value="pending">Pending</option>
-                        <option value="cancelled">Cancelled</option>
-                    </select>
-                </div>
-                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed Qty</label><input type="number" min="0" name="lines[__IDX__][detail][extra_bed_qty]" class="form-control hotel-bed-qty" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-            </div>
-            <div class="row">
-                <div class="col-md-4 mb-2"><label class="form-label">Remark</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
-                <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
-                <div class="col-md-4 mb-2">
-                    <label class="form-label">Pax <small class="field-note">(visual only, from Passengers grid — not saved yet)</small></label>
-                    <select multiple class="form-control not-persisted-field hotel-pax-picker" style="height:68px;"></select>
-                </div>
-            </div>
-            <hr class="my-2">
-            <div class="row">
-                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">receivable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">payable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">receivable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">payable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-            </div>
-            <div class="row">
-                <div class="col-md-6 mb-2 form-check">
-                    <input type="checkbox" class="form-check-input hotel-auto-update" onchange="recalcHotelComponents(this.closest('.line-card'))" checked>
-                    <label class="form-check-label">Auto Update Receivable/Payable (F) above from the Room/Extra Bed charges</label>
-                </div>
-            </div>
-            @endif
 
             @if($type === 'ticket')
             {{-- Dead branch: the Ticket service type is now rendered by its
@@ -658,21 +766,6 @@
             roomSelect.appendChild(opt);
         });
         if (window.jQuery) $(roomSelect).trigger('change.select2') || $(roomSelect).select2({dropdownParent: card});
-    }
-
-    function populateHotelPaxPicker(card) {
-        const picker = card.querySelector('.hotel-pax-picker');
-        if (!picker) return;
-        picker.innerHTML = '';
-        document.querySelectorAll('#paxTable tbody tr').forEach((row, i) => {
-            const nameInput = row.querySelector('input[name*="[name]"]');
-            const name = nameInput ? nameInput.value : '';
-            if (!name) return;
-            const opt = document.createElement('option');
-            opt.value = i;
-            opt.textContent = name;
-            picker.appendChild(opt);
-        });
     }
 
     function recalcHotelComponents(card) {
@@ -821,7 +914,6 @@
         if (window.jQuery) $(card).find('.select2-js').select2({dropdownParent: card});
 
         if (type === 'hotel') {
-            populateHotelPaxPicker(card);
             // An existing hotel line already has its real receivable/payable
             // saved from before these new Room/Extra Bed rate fields
             // existed — leave Auto Update OFF for it so loading the edit
