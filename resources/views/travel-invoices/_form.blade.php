@@ -134,7 +134,7 @@
     .not-persisted-field { background-image: linear-gradient(45deg, rgba(255,193,7,.08) 25%, transparent 25%, transparent 50%, rgba(255,193,7,.08) 50%, rgba(255,193,7,.08) 75%, transparent 75%, transparent); background-size: 8px 8px; }
     .field-note { font-size: .72rem; color: #997404; }
 </style>
-
+<div class="tabs">
 <ul class="nav nav-tabs" id="invoiceTabs" role="tablist">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general" type="button">General Information</button></li>
     @foreach($activeTabs as $type => $label)
@@ -142,7 +142,7 @@
     @endforeach
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-summary" type="button">Invoice Summary</button></li>
 </ul>
-
+</div>
 <div class="tab-content border border-top-0 p-3 mb-3">
 
     {{-- ============ General Information ============ --}}
