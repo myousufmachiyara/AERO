@@ -450,7 +450,7 @@
         <div class="line-card" data-type="hotel" data-charge-idx="0" data-room-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
 
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Booking Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Booking Details</h4>
             <div class="row">
                 <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control hotel-checkin" onchange="syncHotelNights(this.closest('.line-card'))"></div>
                 <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control hotel-checkout" onchange="syncHotelNights(this.closest('.line-card'))"></div>
@@ -521,7 +521,7 @@
             </div>
 
             <hr class="my-2">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Room Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Room Details</h4>
             <table class="table table-bordered table-sm mini-table hotel-rooms-table">
                 <thead><tr><th>Room Type</th><th>Room View</th><th width="12%">No. of Room</th><th width="16%">Rate</th><th width="16%">Total Amount</th><th width="36"></th></tr></thead>
                 <tbody></tbody>
@@ -550,7 +550,7 @@
             <hr class="my-2">
             <div class="row">
                 <div class="col-md-6">
-                    <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Receivables</h6>
+                    <h4 class="fw-bold text-uppercase text-dark mb-2">Charges Details</h4>
                     <div class="row">
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Receivable (F)</label>
@@ -570,7 +570,6 @@
                     <div class="text-end"><span class="text-muted">Receivable Amount (Converted):</span> <span class="fw-bold hotel-recv-converted">0.00</span></div>
                 </div>
                 <div class="col-md-6">
-                    <h6 class="text-uppercase text-muted small fw-bold mb-2">4. Payables</h6>
                     <div class="row">
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Payable (F)</label>
@@ -673,8 +672,7 @@
     <template id="tpl-transport">
         <div class="line-card" data-type="transport" data-charge-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="transport">
-
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Transport Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Transport Details</h4>
             <div class="row">
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Supplier</label>
@@ -704,7 +702,7 @@
             </div>
 
             <hr class="my-2">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Vehicle Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Vehicle Details</h4>
             <div class="row">
                 <div class="col-md-4 mb-2">
                     <label class="form-label">Vehicle</label>
@@ -738,7 +736,7 @@
             </template>
 
             <hr class="my-2">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Charges Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Charges Details</h4>
             <div class="row">
                 <div class="col-md-6">
                     <div class="row">
