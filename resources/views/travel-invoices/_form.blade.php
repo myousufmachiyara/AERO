@@ -442,7 +442,7 @@
         <div class="line-card" data-type="hotel" data-charge-idx="0" data-room-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
 
-            <h2 class="text-uppercase mb-2">Booking Details</h2>
+            <h4 class="text-uppercase mb-2">Booking Details</h4>
             <div class="row">
                 <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control hotel-checkin" onchange="syncHotelNights(this.closest('.line-card'))"></div>
                 <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control hotel-checkout" onchange="syncHotelNights(this.closest('.line-card'))"></div>
@@ -496,8 +496,7 @@
             </div>
  
             <hr class="my-2">
-            <h2 class="text-uppercase mb-2">Booking Details</h2>
-            <h6 class="text-uppercase mb-2">Room Details</h6>
+            <h4 class="text-uppercase mb-2">Room Details</h4>
             <table class="table table-bordered table-sm mini-table hotel-rooms-table">
                 <thead><tr><th>Room Type</th><th>Room View</th><th width="12%">No. of Room</th><th width="16%">Rate</th><th width="16%">Total Amount</th><th width="36"></th></tr></thead>
                 <tbody></tbody>
@@ -526,7 +525,7 @@
             <hr class="my-2">
             <div class="row">
                 <div class="col-md-6">
-                    <h2 class="text-uppercase mb-2">Receivables</h2>
+                    <h4 class="text-uppercase mb-2">Charges Details</h4>
                     <div class="row">
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Receivable (F)</label>
