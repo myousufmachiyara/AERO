@@ -500,13 +500,13 @@
                     <label class="form-label">Receivable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
                 </div>
-                <div class="col-md-1 mb-2">
-                    <label class="form-label">Receivable Currency</label>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Receivable Curreny</label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
                 </div>
-                <div class="col-md-2 mb-2">
+                <div class="col-md-1 mb-2">
                     <label class="form-label">Receivable Exch. Rate</label>
                     <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
@@ -515,12 +515,12 @@
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
                 </div>
                 <div class="col-md-1 mb-2">
-                    <label class="form-label">Receivable Currency</label>
+                    <label class="form-label">Payable Currency</label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
                 </div>
-                <div class="col-md-2 mb-2">
+                <div class="col-md-1 mb-2">
                     <label class="form-label">Payable Exch. Rate</label>
                     <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
