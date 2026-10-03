@@ -93,8 +93,12 @@
               @can('vehicles.index')
               <li><a class="nav-link" href="{{ route('vehicles.index') }}">Vehicles</a></li>
               @endcan
+              
               @can('visa_types.index')
               <li><a class="nav-link" href="{{ route('visa_types.index') }}">Visa Types</a></li>
+              @endcan
+              @can('currencies.index')
+              <li><a class="nav-link" href="{{ route('currencies.index') }}">Currencies</a></li>
               @endcan
               @can('charge_types.index')
               <li><a class="nav-link" href="{{ route('charge_types.index') }}">Charge Types</a></li>
