@@ -514,7 +514,7 @@
             </div>
             <div class="row">
                 <label class="form-label d-block">Payable</label>
-                <div class="col-md-2 mb-2">
+                <div class="col-md-3 mb-2">
                     <label class="form-label">Payable (F)</label>
                     <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
                 </div>
@@ -524,7 +524,7 @@
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
                 </div>
-                <div class="col-md-1 mb-2">
+                <div class="col-md-2 mb-2">
                     <label class="form-label">Payable Exch. Rate</label>
                     <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
