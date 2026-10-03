@@ -507,7 +507,7 @@
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
                 </div>
-                <div class="col-md-3 mb-2">
+                <div class="col-md-2 mb-2">
                     <label class="form-label">Receivable Exch. Rate</label>
                     <input type="number" step="any" class="form-control line-recv line-field" value="0">
                 </div>
