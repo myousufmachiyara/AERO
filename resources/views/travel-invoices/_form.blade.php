@@ -851,7 +851,6 @@
 
         card.querySelector('.line-recv').value = data.receivable_f_amount ?? 0;
         card.querySelector('.line-pay').value = data.payable_f_amount ?? 0;
-        card.querySelector('.line-rate').value = data.exchange_rate ?? 1;
         card.querySelector('.line-currency').value = data.currency ?? 'PKR';
         ['input', 'change'].forEach(evt => {
             card.querySelectorAll('.line-recv, .line-pay, .line-rate').forEach(el => el.addEventListener(evt, () => recalcCard(card)));
