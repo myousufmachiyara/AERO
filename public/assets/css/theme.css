@@ -21742,4 +21742,10 @@ input[type="number"] {
 
 .form-check .form-check-input{
 	margin-left: 0;
+	float: none;
+}
+
+.form-check-input{
+	height: 1.2em !important;
+    margin-top: 0.2em !important;
 }
