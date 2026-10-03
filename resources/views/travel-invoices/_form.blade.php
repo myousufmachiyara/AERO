@@ -493,22 +493,7 @@
                 <div class="col-md-5 mb-2"><label class="form-label">Remark</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
                 <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
             </div>
-
-            <hr class="my-2">
-            <div class="row">
-                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">receivable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Room Charge (F) <small class="text-muted">payable, /night/room</small></label><input type="number" step="any" class="form-control hotel-room-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed Qty</label><input type="number" min="0" name="lines[__IDX__][detail][extra_bed_qty]" class="form-control hotel-bed-qty" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">receivable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-recv" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Extra Bed (F) <small class="text-muted">payable, /night/bed</small></label><input type="number" step="any" class="form-control hotel-bed-pay" value="0" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-            </div>
-            <div class="row">
-                <div class="col-md-8 mb-2 form-check">
-                    <input type="checkbox" class="form-check-input hotel-auto-update" onchange="recalcHotelComponents(this.closest('.line-card'))" checked>
-                    <label class="form-check-label">Auto Update Receivable/Payable (F) below from the Room/Extra Bed charges</label>
-                </div>
-            </div>
-
+            
             <hr class="my-2">
             <div class="row">
                 <div class="col-md-2 mb-2">
