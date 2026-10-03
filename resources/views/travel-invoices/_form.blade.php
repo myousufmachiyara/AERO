@@ -442,7 +442,7 @@
         <div class="line-card" data-type="hotel" data-charge-idx="0" data-room-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
 
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Booking Details</h6>
+            <h6 class="text-uppercase mb-2">Booking Details</h6>
             <div class="row">
                 <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control hotel-checkin" onchange="syncHotelNights(this.closest('.line-card'))"></div>
                 <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control hotel-checkout" onchange="syncHotelNights(this.closest('.line-card'))"></div>
@@ -464,7 +464,7 @@
                     <label class="form-label">Category <small class="field-note">(not saved yet)</small></label>
                     <select class="form-control not-persisted-field">
                         @foreach(['umrah' => 'Umrah', 'hajj' => 'Hajj', 'holiday' => 'Holiday', 'tour' => 'Tour', 'visitor' => 'Visitor'] as $val => $lbl)
-                        <option value="{{ $val }}">{{ $lbl }}</option>
+                        <option value="{{ $val }}">{{ $lbl }}</option>  
                         @endforeach
                     </select>
                 </div>
