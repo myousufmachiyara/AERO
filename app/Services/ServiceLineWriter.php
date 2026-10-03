@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\InvoiceHotelDetail;
+use App\Models\InvoiceHotelRoom;
 use App\Models\InvoiceOtherDetail;
 use App\Models\InvoiceTicketDetail;
 use App\Models\InvoiceTicketFlight;
@@ -145,7 +146,13 @@ class ServiceLineWriter
                 break;
 
             case 'hotel':
-                InvoiceHotelDetail::create([
+                // hotel_room_id/room_view_id/room_qty kept here for
+                // backward compatibility (older data, and any direct API
+                // caller still sending the old single-room shape) — the
+                // Hotel tab UI itself no longer sends these at this level,
+                // it sends a `rooms` array instead (one row per room
+                // type), written to invoice_hotel_rooms below.
+                $hotelDetail = InvoiceHotelDetail::create([
                     'service_line_id' => $line->id,
                     'hotel_id' => $detail['hotel_id'] ?? null,
                     'hotel_room_id' => $detail['hotel_room_id'] ?? null,
@@ -156,7 +163,28 @@ class ServiceLineWriter
                     'room_qty' => $detail['room_qty'] ?? 1,
                     'extra_bed_qty' => $detail['extra_bed_qty'] ?? 0,
                     'booking_name' => $detail['booking_name'] ?? null,
+                    'receivable_currency' => $detail['receivable_currency'] ?? 'PKR',
+                    'receivable_exchange_rate' => $detail['receivable_exchange_rate'] ?? 1,
+                    'payable_currency' => $detail['payable_currency'] ?? 'PKR',
+                    'payable_exchange_rate' => $detail['payable_exchange_rate'] ?? 1,
+                    'agent_commission_percent' => $detail['agent_commission_percent'] ?? 0,
+                    'agent_commission_amount' => $detail['agent_commission_amount'] ?? 0,
                 ]);
+
+                foreach (array_values($detail['rooms'] ?? []) as $j => $room) {
+                    if (empty($room['hotel_room_id']) && empty($room['room_view_id']) && empty($room['qty']) && empty($room['rate'])) {
+                        continue;
+                    }
+                    InvoiceHotelRoom::create([
+                        'invoice_hotel_detail_id' => $hotelDetail->id,
+                        'hotel_room_id' => $room['hotel_room_id'] ?? null,
+                        'room_view_id' => $room['room_view_id'] ?? null,
+                        'qty' => $room['qty'] ?? 1,
+                        'rate' => $room['rate'] ?? 0,
+                        'total_amount' => $room['total_amount'] ?? 0,
+                        'sort_order' => $j,
+                    ]);
+                }
                 break;
 
             case 'transport':

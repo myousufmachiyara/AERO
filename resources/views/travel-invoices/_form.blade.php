@@ -36,9 +36,24 @@
                     break;
                 case 'hotel':
                     if ($line->hotelDetail) {
-                        $detail = $line->hotelDetail->only(['hotel_id', 'hotel_room_id', 'room_view_id', 'nights', 'room_qty', 'extra_bed_qty', 'booking_name']);
+                        // hotel_room_id/room_view_id/room_qty kept for
+                        // back-compat with lines saved before Room Details
+                        // became a grid (see InvoiceHotelRoom below) — the
+                        // JS synthesizes one grid row from these if the
+                        // line has no `rooms` of its own.
+                        $detail = $line->hotelDetail->only([
+                            'hotel_id', 'hotel_room_id', 'room_view_id', 'nights', 'room_qty', 'booking_name',
+                            'receivable_currency', 'receivable_exchange_rate', 'payable_currency', 'payable_exchange_rate',
+                            'agent_commission_percent', 'agent_commission_amount',
+                        ]);
                         $detail['check_in'] = optional($line->hotelDetail->check_in)->format('Y-m-d');
                         $detail['check_out'] = optional($line->hotelDetail->check_out)->format('Y-m-d');
+                        $detail['rooms'] = $line->hotelDetail->rooms->map(fn ($r) => [
+                            'hotel_room_id' => $r->hotel_room_id,
+                            'room_view_id' => $r->room_view_id,
+                            'qty' => $r->qty,
+                            'rate' => (float) $r->rate,
+                        ])->values();
                     }
                     break;
                 case 'transport':
@@ -382,29 +397,34 @@
     @endif
 
     {{--
-        ============ Hotel tab: dedicated layout ============
+        ============ Hotel tab: dedicated layout (round 2 client fixes) ============
         Pulled out of the generic per-type loop below, same treatment as
-        Ticket above, because Hotel's required field order (per client
-        spec) doesn't match the shared generic header — here "costing
-        fields" (Template/Currency/Exchange Rate/Payable/Receivable/
-        Income) move to the END, after the room-level details and the
-        Room/Extra Bed charge rates, instead of sitting at the top like
-        every other tab. The Pax picker has been removed entirely per
-        client instruction.
+        Ticket above. Broken into the 4 sections the client asked for:
+        Booking Details / Room Details (now a repeatable grid, like the
+        Charges grid) / Receivables / Payables. Costing Type removed.
+        Nights is auto-calculated from Check-in/Check-out (readonly).
+        Booking Name auto-fills from the Customer picked in General
+        Information (still editable per line). PSF = Receivable(converted)
+        − Payable(converted); Agent Commission is calculated and saved but
+        NOT netted out of PSF, per client instruction.
 
-        Two small judgment calls made here, flagged for review:
-          1. "Template" isn't in the client's literal field list, but is
-             kept (grouped with the other costing fields, right before
-             Currency) because it auto-fills Currency/Rate/Charges from a
-             saved Charge Template — the same convenience every other tab
-             has. Drop it if that's not wanted here.
-          2. "Booking Name" also isn't in the literal list, but is kept
-             (next to Remark) rather than deleted outright: it's a real
-             saved field (detail.booking_name), and removing its input
-             would silently blank that value out of any existing hotel
-             line the next time it's saved, since the save logic rebuilds
-             the whole detail row from whatever the form submits. Safe to
-             drop later once confirmed no one is relying on it.
+        Judgment calls made here, flagged for review:
+          1. "Template" and the "Other Charges / Discount" grid aren't in
+             the client's 4-part field list, but are kept (Template at the
+             end of Booking Details, Charges at the end of Payables) since
+             nothing asked for their removal and they're real saved/useful
+             features. Charges are intentionally NOT netted into PSF below
+             (the client gave an exact "PSF = receivable − payable"
+             formula) — easy to add back in if that's wanted.
+          2. Receivable/Payable "Amount (Converted)" are shown live
+             (receivable/payable × that side's own exchange rate) but not
+             saved as their own column — they're just receivable/payable
+             and the rate replayed through the same formula, so there's
+             nothing to lose by recomputing them on load instead of
+             storing a third copy.
+          3. Agent Commission Amount IS saved (hidden field, client asked
+             for "calculate commission and save it"), computed as
+             PSF × Commission % ÷ 100.
     --}}
     @if(isset($activeTabs['hotel']))
     <div class="tab-pane fade" id="tab-hotel">
@@ -419,12 +439,13 @@
     </div>
 
     <template id="tpl-hotel">
-        <div class="line-card" data-type="hotel" data-charge-idx="0">
+        <div class="line-card" data-type="hotel" data-charge-idx="0" data-room-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
 
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Booking Details</h6>
             <div class="row">
-                <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control"></div>
-                <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control hotel-checkin" onchange="syncHotelNights(this.closest('.line-card'))"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control hotel-checkout" onchange="syncHotelNights(this.closest('.line-card'))"></div>
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Supplier</label>
                     <select name="lines[__IDX__][supplier_id]" class="form-control select2-js line-field">
@@ -440,32 +461,6 @@
                     </select>
                 </div>
                 <div class="col-md-2 mb-2">
-                    <label class="form-label">Room Type</label>
-                    <select name="lines[__IDX__][detail][hotel_room_id]" class="form-control select2-js room-select">
-                        <option value="">— Select Hotel First —</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-3 mb-2">
-                    <label class="form-label">Room View</label>
-                    <select name="lines[__IDX__][detail][room_view_id]" class="form-control select2-js">
-                        <option value="">— None —</option>
-                        @foreach($roomViews as $rv)<option value="{{ $rv->id }}">{{ $rv->name }}</option>@endforeach
-                    </select>
-                </div>
-                <div class="col-md-2 mb-2"><label class="form-label">No. of Nights</label><input type="number" min="0" name="lines[__IDX__][detail][nights]" class="form-control hotel-nights" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Costing Type <small class="field-note">(not saved yet)</small></label>
-                    <select class="form-control not-persisted-field">
-                        <option value="per_pax">Per Pax</option>
-                        <option value="per_room" selected>Per Room</option>
-                        <option value="per_bed">Per Bed</option>
-                    </select>
-                </div>
-                <div class="col-md-2 mb-2"><label class="form-label">No. of Room</label><input type="number" min="0" name="lines[__IDX__][detail][room_qty]" class="form-control hotel-room-qty" value="1" oninput="recalcHotelComponents(this.closest('.line-card'))"></div>
-                <div class="col-md-3 mb-2">
                     <label class="form-label">Category <small class="field-note">(not saved yet)</small></label>
                     <select class="form-control not-persisted-field">
                         @foreach(['umrah' => 'Umrah', 'hajj' => 'Hajj', 'holiday' => 'Holiday', 'tour' => 'Tour', 'visitor' => 'Visitor'] as $val => $lbl)
@@ -474,15 +469,23 @@
                     </select>
                 </div>
             </div>
-
             <div class="row">
                 <div class="col-md-2 mb-2">
-                    <label class="form-label">Currency</label>
+                    <label class="form-label">No. of Nights <small class="field-note">(auto)</small></label>
+                    <input type="number" min="0" name="lines[__IDX__][detail][nights]" class="form-control hotel-nights" value="0" readonly>
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Booking Name <small class="field-note">(auto from Customer)</small></label>
+                    <input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control hotel-booking-name">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Currency <small class="text-muted">(invoice)</small></label>
                     <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
                         @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                     </select>
                 </div>
-                <div class="col-md-3 mb-2">
+                <div class="col-md-3 mb-2"><label class="form-label">Remarks</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
+                <div class="col-md-2 mb-2">
                     <label class="form-label">Booking Status<span class="text-danger">*</span> <small class="field-note">(not saved yet)</small></label>
                     <select class="form-control not-persisted-field">
                         <option value="confirmed" selected>Confirmed</option>
@@ -490,61 +493,114 @@
                         <option value="cancelled">Cancelled</option>
                     </select>
                 </div>
-                <div class="col-md-5 mb-2"><label class="form-label">Remark</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
-                <div class="col-md-4 mb-2"><label class="form-label">Booking Name</label><input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control"></div>
+            </div>
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Template <small class="field-note">(optional — auto-fills Currency/Charges)</small></label>
+                    <select class="form-control select2-js template-select" onchange="onTemplateChange(this)">
+                        <option value="">— None —</option>
+                        @foreach($chargeTemplatesByType->get('hotel', collect()) as $ct)
+                        <option value="{{ $ct->id }}"
+                            data-currency="{{ $ct->default_currency }}"
+                            data-rate="{{ $ct->default_exchange_rate }}"
+                            data-items='@json($ct->items->map(fn ($it) => ["charge_type_id" => $it->charge_type_id, "value" => (float) $it->value])->values())'>
+                            {{ $ct->name }} ({{ optional($ct->effective_date)->format('d/m/Y') }})
+                        </option>
+                        @endforeach
+                    </select>
+                    <input type="hidden" name="lines[__IDX__][charge_template_id]" class="template-id-field">
+                </div>
             </div>
 
             <hr class="my-2">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Room Details</h6>
+            <table class="table table-bordered table-sm mini-table hotel-rooms-table">
+                <thead><tr><th>Room Type</th><th>Room View</th><th width="12%">No. of Room</th><th width="16%">Rate</th><th width="16%">Total Amount</th><th width="36"></th></tr></thead>
+                <tbody></tbody>
+            </table>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addHotelRoomRow(this.closest('.line-card'))">+ Add Room</button>
+            <template class="hotel-room-tpl">
+                <tr>
+                    <td>
+                        <select name="lines[__IDX__][detail][rooms][__RIDX__][hotel_room_id]" class="form-control form-control-sm select2-js hotel-room-type-select">
+                            <option value="">— Select Hotel First —</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select name="lines[__IDX__][detail][rooms][__RIDX__][room_view_id]" class="form-control form-control-sm select2-js hotel-room-view-select">
+                            <option value="">— None —</option>
+                            @foreach($roomViews as $rv)<option value="{{ $rv->id }}">{{ $rv->name }}</option>@endforeach
+                        </select>
+                    </td>
+                    <td><input type="number" min="0" name="lines[__IDX__][detail][rooms][__RIDX__][qty]" class="form-control form-control-sm hotel-room-row-qty" value="1" oninput="recalcHotelRoomRow(this.closest('tr'))"></td>
+                    <td><input type="number" step="any" min="0" name="lines[__IDX__][detail][rooms][__RIDX__][rate]" class="form-control form-control-sm hotel-room-row-rate" value="0" oninput="recalcHotelRoomRow(this.closest('tr'))"></td>
+                    <td><input type="number" step="any" name="lines[__IDX__][detail][rooms][__RIDX__][total_amount]" class="form-control form-control-sm hotel-room-row-total" value="0" readonly></td>
+                    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove();"><i class="fas fa-times"></i></button></td>
+                </tr>
+            </template>
+
+            <hr class="my-2">
             <div class="row">
-                <label class="form-label d-block">Receivables</label>
-                <div class="col-md-3 mb-2">
-                    <label class="form-label">Receivable (F)</label>
-                    <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0">
+                <div class="col-md-6">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Receivables</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Receivable (F)</label>
+                            <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0" oninput="recalcHotelFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Exch. Rate</label>
+                            <input type="number" step="any" name="lines[__IDX__][detail][receivable_exchange_rate]" class="form-control hotel-recv-rate" value="1" oninput="recalcHotelFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Currency</label>
+                            <select name="lines[__IDX__][detail][receivable_currency]" class="form-control hotel-recv-currency" onchange="recalcHotelFinance(this.closest('.line-card'))">
+                                @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-end"><span class="text-muted">Receivable Amount (Converted):</span> <span class="fw-bold hotel-recv-converted">0.00</span></div>
                 </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Receivable Exch. Rate</label>
-                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Curreny</label>
-                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
-                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
-                    </select>
+                <div class="col-md-6">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">4. Payables</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Payable (F)</label>
+                            <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0" oninput="recalcHotelFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Exch. Rate</label>
+                            <input type="number" step="any" name="lines[__IDX__][detail][payable_exchange_rate]" class="form-control hotel-pay-rate" value="1" oninput="recalcHotelFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Currency</label>
+                            <select name="lines[__IDX__][detail][payable_currency]" class="form-control hotel-pay-currency" onchange="recalcHotelFinance(this.closest('.line-card'))">
+                                @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-end"><span class="text-muted">Payable Amount (Converted):</span> <span class="fw-bold hotel-pay-converted">0.00</span></div>
                 </div>
             </div>
-            <div class="row">
-                <label class="form-label d-block">Payable</label>
+
+            <hr class="my-2">
+            <div class="row align-items-end">
                 <div class="col-md-3 mb-2">
-                    <label class="form-label">Payable (F)</label>
-                    <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0">
+                    <label class="form-label">Agent Commission %</label>
+                    <input type="number" step="any" min="0" max="100" name="lines[__IDX__][detail][agent_commission_percent]" class="form-control hotel-commission-pct" value="0" oninput="recalcHotelFinance(this.closest('.line-card'))">
+                    <input type="hidden" name="lines[__IDX__][detail][agent_commission_amount]" class="hotel-commission-amount-field" value="0">
                 </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Payable Exch. Rate</label>
-                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
+                <div class="col-md-3 mb-2"><span class="text-muted">Commission Amount:</span> <span class="fw-bold hotel-commission-amount-display">0.00</span></div>
+                <div class="col-md-4 mb-2 text-end">
+                    <span class="text-muted">PSF (Receivable − Payable, local):</span> <span class="line-income fw-bold">0.00</span>
                 </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">Currency</label>
-                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
-                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
-                    </select>
-                </div>
-                <div class="col-md-2 mb-2">
-                    <label class="form-label">PSF</label>
-                    <input type="number" step="any" class="form-control line-recv line-field" value="0">
-                </div>
-                <div class="col-md-1 mb-2 text-end">
-                    <label class="form-label d-block">&nbsp;</label>
+                <div class="col-md-2 mb-2 text-end">
                     <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-md-12 mb-2 text-end">
-                    <span class="text-muted">Income (Local):</span> <span class="line-income fw-bold">0.00</span>
                 </div>
             </div>
 
             <div class="mb-1">
-                <label class="form-label d-block">Other Charges / Discount (SPO / WHT / COM / PSF / Tax ...)</label>
+                <label class="form-label d-block">Other Charges / Discount (SPO / WHT / COM / PSF / Tax ...) <small class="field-note">(informational — not netted into PSF above)</small></label>
                 <table class="table table-bordered table-sm mini-table charges-table">
                     <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
                     <tbody></tbody>
@@ -747,36 +803,118 @@
         paxIndex++;
     }
 
-    function onHotelChange(select) {
-        const card = select.closest('.line-card');
-        const roomSelect = card.querySelector('.room-select');
-        const hotelId = select.value;
+    // Room Type options on each Room Details grid row depend on which
+    // Hotel is picked up in Booking Details — re-populated whenever the
+    // Hotel changes, and whenever a new room row is added.
+    function populateHotelRoomTypeOptions(select, hotelId) {
         const hotel = (window.hotelsData || []).find(h => String(h.id) === String(hotelId));
-        roomSelect.innerHTML = '<option value="">— None —</option>';
+        const current = select.value;
+        select.innerHTML = '<option value="">— None —</option>';
         (hotel ? hotel.rooms : []).forEach(r => {
             const opt = document.createElement('option');
             opt.value = r.id;
             opt.textContent = r.room_type;
-            roomSelect.appendChild(opt);
+            select.appendChild(opt);
         });
-        if (window.jQuery) $(roomSelect).trigger('change.select2') || $(roomSelect).select2({dropdownParent: card});
+        if (current) select.value = current;
     }
 
-    function recalcHotelComponents(card) {
+    function onHotelChange(select) {
+        const card = select.closest('.line-card');
+        const hotelId = select.value;
+        card.querySelectorAll('.hotel-room-type-select').forEach(roomSelect => {
+            populateHotelRoomTypeOptions(roomSelect, hotelId);
+            if (window.jQuery) $(roomSelect).trigger('change.select2') || $(roomSelect).select2({dropdownParent: card});
+        });
+    }
+
+    // Client fix: "no of night should be auto calculated using check in
+    // and check out date" — Nights is readonly, this is the only thing
+    // that writes to it.
+    function syncHotelNights(card) {
         if (!card) return;
-        const nights = parseFloat(card.querySelector('.hotel-nights')?.value) || 0;
-        const roomQty = parseFloat(card.querySelector('.hotel-room-qty')?.value) || 0;
-        const bedQty = parseFloat(card.querySelector('.hotel-bed-qty')?.value) || 0;
-        const roomRecvRate = parseFloat(card.querySelector('.hotel-room-recv')?.value) || 0;
-        const roomPayRate = parseFloat(card.querySelector('.hotel-room-pay')?.value) || 0;
-        const bedRecvRate = parseFloat(card.querySelector('.hotel-bed-recv')?.value) || 0;
-        const bedPayRate = parseFloat(card.querySelector('.hotel-bed-pay')?.value) || 0;
-        const autoUpdate = card.querySelector('.hotel-auto-update');
-        if (autoUpdate && autoUpdate.checked) {
-            card.querySelector('.line-recv').value = ((roomRecvRate * nights * roomQty) + (bedRecvRate * nights * bedQty)).toFixed(2);
-            card.querySelector('.line-pay').value = ((roomPayRate * nights * roomQty) + (bedPayRate * nights * bedQty)).toFixed(2);
+        const inEl = card.querySelector('.hotel-checkin');
+        const outEl = card.querySelector('.hotel-checkout');
+        const nightsEl = card.querySelector('.hotel-nights');
+        if (!inEl || !outEl || !nightsEl) return;
+        const inDate = inEl.value ? new Date(inEl.value + 'T00:00:00') : null;
+        const outDate = outEl.value ? new Date(outEl.value + 'T00:00:00') : null;
+        let nights = 0;
+        if (inDate && outDate && outDate > inDate) {
+            nights = Math.round((outDate - inDate) / 86400000);
         }
-        recalcCard(card);
+        nightsEl.value = nights;
+    }
+
+    function recalcHotelRoomRow(row) {
+        const qty = parseFloat(row.querySelector('.hotel-room-row-qty')?.value) || 0;
+        const rate = parseFloat(row.querySelector('.hotel-room-row-rate')?.value) || 0;
+        const totalField = row.querySelector('.hotel-room-row-total');
+        if (totalField) totalField.value = (qty * rate).toFixed(2);
+    }
+
+    // Client fix: "break Room Details into a grid... same as charges
+    // grid" — same nested-<template> pattern as addChargeRow/addFlightRow.
+    function addHotelRoomRow(card, data) {
+        data = data || {};
+        const tpl = card.querySelector('.hotel-room-tpl');
+        const tbody = card.querySelector('.hotel-rooms-table tbody');
+        const rIdx = parseInt(card.dataset.roomIdx || '0', 10);
+        const lineIdx = card.querySelector('input[name$="[service_type]"]').name.match(/lines\[(\d+)\]/)[1];
+        const row = tpl.content.firstElementChild.cloneNode(true);
+        row.querySelectorAll('[name]').forEach(el => {
+            el.name = el.name.replace('__IDX__', lineIdx).replace('__RIDX__', rIdx);
+        });
+        tbody.appendChild(row);
+        card.dataset.roomIdx = rIdx + 1;
+
+        const hotelSelect = card.querySelector('.hotel-select');
+        populateHotelRoomTypeOptions(row.querySelector('.hotel-room-type-select'), hotelSelect ? hotelSelect.value : '');
+        if (data.hotel_room_id) row.querySelector('.hotel-room-type-select').value = data.hotel_room_id;
+        if (data.room_view_id) row.querySelector('.hotel-room-view-select').value = data.room_view_id;
+        row.querySelector('.hotel-room-row-qty').value = data.qty ?? 1;
+        row.querySelector('.hotel-room-row-rate').value = data.rate ?? 0;
+        recalcHotelRoomRow(row);
+
+        if (window.jQuery) $(row).find('select').select2({dropdownParent: card});
+        return row;
+    }
+
+    // Client fix: Receivable/Payable each get their own currency+exchange
+    // rate (what the customer/vendor is actually billed in), converted to
+    // local via "Amount (Converted) = amount × that side's exchange rate".
+    // PSF = Receivable(converted) − Payable(converted); Agent Commission
+    // is computed from PSF but intentionally NOT subtracted from it.
+    function recalcHotelFinance(card) {
+        if (!card) return;
+        const recv = parseFloat(card.querySelector('.line-recv')?.value) || 0;
+        const recvRate = parseFloat(card.querySelector('.hotel-recv-rate')?.value) || 0;
+        const pay = parseFloat(card.querySelector('.line-pay')?.value) || 0;
+        const payRate = parseFloat(card.querySelector('.hotel-pay-rate')?.value) || 0;
+        const commissionPct = parseFloat(card.querySelector('.hotel-commission-pct')?.value) || 0;
+
+        const recvConverted = recv * recvRate;
+        const payConverted = pay * payRate;
+        const psf = recvConverted - payConverted;
+        const commissionAmount = psf * commissionPct / 100;
+
+        const recvConvertedEl = card.querySelector('.hotel-recv-converted');
+        if (recvConvertedEl) recvConvertedEl.textContent = recvConverted.toFixed(2);
+        const payConvertedEl = card.querySelector('.hotel-pay-converted');
+        if (payConvertedEl) payConvertedEl.textContent = payConverted.toFixed(2);
+
+        const psfEl = card.querySelector('.line-income');
+        if (psfEl) {
+            psfEl.textContent = psf.toFixed(2);
+            psfEl.className = 'line-income fw-bold ' + (psf < 0 ? 'negative' : 'positive');
+        }
+
+        const commissionDisplayEl = card.querySelector('.hotel-commission-amount-display');
+        if (commissionDisplayEl) commissionDisplayEl.textContent = commissionAmount.toFixed(2);
+        const commissionFieldEl = card.querySelector('.hotel-commission-amount-field');
+        if (commissionFieldEl) commissionFieldEl.value = commissionAmount.toFixed(2);
+
+        recalcTotals();
     }
 
     function onTemplateChange(select) {
@@ -785,7 +923,10 @@
         card.querySelector('.template-id-field').value = opt.value || '';
         if (!opt.value) return;
         if (opt.dataset.currency) card.querySelector('.line-currency').value = opt.dataset.currency;
-        if (opt.dataset.rate) card.querySelector('.line-rate').value = opt.dataset.rate;
+        // Hotel cards have no single `.line-rate` (separate Receivable/
+        // Payable exchange rates instead) — only set it where it exists.
+        const rateEl = card.querySelector('.line-rate');
+        if (opt.dataset.rate && rateEl) rateEl.value = opt.dataset.rate;
         const tbody = card.querySelector('.charges-table tbody');
         tbody.innerHTML = '';
         const items = JSON.parse(opt.dataset.items || '[]');
@@ -810,7 +951,10 @@
         const value = parseFloat(row.querySelector('.charge-value').value) || 0;
         const amountInput = row.querySelector('.charge-amount');
         if (opt && opt.dataset.calc === 'percentage') {
-            const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
+            // Hotel cards have no single `.line-rate` — fall back to the
+            // Receivable exchange rate for the percentage base there.
+            const rateEl = card.querySelector('.line-rate') || card.querySelector('.hotel-recv-rate');
+            const rate = parseFloat(rateEl?.value) || 0;
             const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
             amountInput.value = ((recv * rate) * value / 100).toFixed(2);
         }
@@ -871,6 +1015,10 @@
 
         card.querySelector('.line-recv').value = data.receivable_f_amount ?? 0;
         card.querySelector('.line-pay').value = data.payable_f_amount ?? 0;
+        // Hotel cards have no single `.line-rate` (separate Receivable/
+        // Payable exchange rates instead, set further down).
+        const rateEl = card.querySelector('.line-rate');
+        if (rateEl) rateEl.value = data.exchange_rate ?? 1;
         card.querySelector('.line-currency').value = data.currency ?? 'PKR';
         ['input', 'change'].forEach(evt => {
             card.querySelectorAll('.line-recv, .line-pay, .line-rate').forEach(el => el.addEventListener(evt, () => recalcCard(card)));
@@ -895,35 +1043,47 @@
             const key = m[1];
             if (detail[key] !== undefined && detail[key] !== null) el.value = detail[key];
         });
-        if (type === 'hotel' && detail.hotel_id) {
-            const hotelSelect = card.querySelector('.hotel-select');
-            hotelSelect.value = detail.hotel_id;
-            onHotelChange(hotelSelect);
-            if (detail.hotel_room_id) card.querySelector('.room-select').value = detail.hotel_room_id;
-        }
         (detail.flights || []).forEach(f => addFlightRow(card, f));
         (data.charges || []).forEach(c => addChargeRow(card, c));
 
-        if (window.jQuery) $(card).find('.select2-js').select2({dropdownParent: card});
-
         if (type === 'hotel') {
-            // An existing hotel line already has its real receivable/payable
-            // saved from before these new Room/Extra Bed rate fields
-            // existed — leave Auto Update OFF for it so loading the edit
-            // form doesn't zero those saved amounts out just because the
-            // new rate inputs default to 0. A brand-new line (no saved
-            // amount yet) keeps Auto Update ON.
-            if ((parseFloat(data.receivable_f_amount) || 0) > 0 || (parseFloat(data.payable_f_amount) || 0) > 0) {
-                const auto = card.querySelector('.hotel-auto-update');
-                if (auto) auto.checked = false;
+            // Room Details is now a grid — prefer the saved `rooms` array,
+            // but synthesize one row from the old single-room fields for
+            // a hotel line saved before this fix, so that data isn't lost
+            // from view.
+            let rooms = detail.rooms || [];
+            if (!rooms.length && (detail.hotel_room_id || detail.room_view_id || detail.room_qty)) {
+                rooms = [{ hotel_room_id: detail.hotel_room_id, room_view_id: detail.room_view_id, qty: detail.room_qty || 1, rate: 0 }];
+            }
+            rooms.forEach(r => addHotelRoomRow(card, r));
+
+            // Client fix: Booking Name auto-picks up the Customer selected
+            // in General Information — only default it on a brand-new
+            // line (nothing saved yet); an existing saved line keeps
+            // whatever name was actually booked under, already set above
+            // by the generic [detail][...] loop.
+            if (!detail.booking_name) {
+                const bookingNameEl = card.querySelector('.hotel-booking-name');
+                const customerSelect = document.querySelector('select[name="customer_id"]');
+                const label = customerSelect?.selectedOptions[0]?.textContent.trim();
+                if (bookingNameEl && label && label !== 'Select Customer') bookingNameEl.value = label;
             }
         }
+
+        if (window.jQuery) $(card).find('.select2-js').select2({dropdownParent: card});
 
         recalcCard(card);
         return card;
     }
 
     function recalcCard(card) {
+        // Hotel cards use their own dual-currency PSF calculation instead
+        // (no single `.line-rate`, and PSF excludes charges per the
+        // client's exact "PSF = receivable − payable" formula).
+        if (card.dataset.type === 'hotel') {
+            recalcHotelFinance(card);
+            return;
+        }
         const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
         const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
         const pay = parseFloat(card.querySelector('.line-pay').value) || 0;
@@ -941,8 +1101,8 @@
         if (!totalEl) return;
         let total = 0;
         document.querySelectorAll('#cards-hotel .line-card').forEach(card => {
-            const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
-            const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
+            const recv = parseFloat(card.querySelector('.line-recv')?.value) || 0;
+            const rate = parseFloat(card.querySelector('.hotel-recv-rate')?.value) || 0;
             total += recv * rate;
         });
         totalEl.textContent = total.toFixed(2);
@@ -1178,15 +1338,30 @@
 
         document.querySelectorAll('.line-card').forEach(card => {
             const type = card.dataset.type;
-            const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
-            const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
-            const pay = parseFloat(card.querySelector('.line-pay').value) || 0;
-            let chargesTotal = 0;
-            card.querySelectorAll('.charge-amount').forEach(el => chargesTotal += (parseFloat(el.value) || 0));
-            const income = (recv * rate) - (pay * rate) + chargesTotal;
+            const recvAmt = parseFloat(card.querySelector('.line-recv')?.value) || 0;
+            const payAmt = parseFloat(card.querySelector('.line-pay')?.value) || 0;
+            let recv, pay, income;
+            if (type === 'hotel') {
+                // Dual currency: Receivable and Payable each convert with
+                // their own exchange rate, and PSF (shown here as the
+                // row's "Income") excludes charges per the client's exact
+                // "PSF = receivable − payable" formula.
+                const recvRate = parseFloat(card.querySelector('.hotel-recv-rate')?.value) || 0;
+                const payRate = parseFloat(card.querySelector('.hotel-pay-rate')?.value) || 0;
+                recv = recvAmt * recvRate;
+                pay = payAmt * payRate;
+                income = recv - pay;
+            } else {
+                const rate = parseFloat(card.querySelector('.line-rate')?.value) || 0;
+                let chargesTotal = 0;
+                card.querySelectorAll('.charge-amount').forEach(el => chargesTotal += (parseFloat(el.value) || 0));
+                recv = recvAmt * rate;
+                pay = payAmt * rate;
+                income = recv - pay + chargesTotal;
+            }
             const supplierSelect = card.querySelector('[name$="[supplier_id]"]');
             const supplierLabel = supplierSelect && supplierSelect.selectedOptions[0] ? supplierSelect.selectedOptions[0].textContent : '—';
-            pushRow(type, supplierLabel, card.querySelector('.line-currency').value, recv * rate, pay * rate, income);
+            pushRow(type, supplierLabel, card.querySelector('.line-currency')?.value || '', recv, pay, income);
         });
 
         const tkRows = document.querySelectorAll('#tk-tickets-wrap tr');
@@ -1267,6 +1442,19 @@
                 if (!el) return;
                 el.addEventListener('input', tkRecalcMaster);
                 el.addEventListener('change', tkRecalcMaster);
+            });
+        }
+
+        // Client fix: Hotel's Booking Name auto-picks up the Customer
+        // selected in General Information — re-synced into every current
+        // Hotel line whenever the Customer changes (staff can still edit
+        // any individual line's Booking Name afterward).
+        const customerSelect = document.querySelector('select[name="customer_id"]');
+        if (customerSelect) {
+            customerSelect.addEventListener('change', function () {
+                const label = this.selectedOptions[0] ? this.selectedOptions[0].textContent.trim() : '';
+                if (!label || label === 'Select Customer') return;
+                document.querySelectorAll('.hotel-booking-name').forEach(el => { el.value = label; });
             });
         }
 

@@ -89,7 +89,11 @@
                                 @endif
                                 @if($type === 'hotel')
                                     <td>{{ $line->hotelDetail->hotel->name ?? '—' }}</td>
-                                    <td>{{ $line->hotelDetail->hotelRoom->room_type ?? '—' }}</td>
+                                    <td>
+                                        {{-- Room Details is now a grid (a booking can cover more than one room type) — prefer it, falling back to the old single-room field for lines saved before this fix. --}}
+                                        @php($roomNames = $line->hotelDetail ? $line->hotelDetail->rooms->map(fn ($r) => optional($r->hotelRoom)->room_type)->filter()->values() : collect())
+                                        {{ $roomNames->isNotEmpty() ? $roomNames->implode(', ') : ($line->hotelDetail->hotelRoom->room_type ?? '—') }}
+                                    </td>
                                     <td>{{ optional($line->hotelDetail?->check_in)->format('d/m/Y') ?? '—' }}</td>
                                     <td>{{ optional($line->hotelDetail?->check_out)->format('d/m/Y') ?? '—' }}</td>
                                     <td>{{ $line->hotelDetail->nights ?? '—' }}</td>

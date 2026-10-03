@@ -138,6 +138,7 @@ abstract class BaseTravelInvoiceController extends Controller
             'customer', 'quotation', 'staff', 'creator', 'passengers', 'payments',
             'serviceLines.supplier', 'serviceLines.ticketDetail.flights',
             'serviceLines.hotelDetail.hotel', 'serviceLines.hotelDetail.hotelRoom',
+            'serviceLines.hotelDetail.rooms.hotelRoom', 'serviceLines.hotelDetail.rooms.roomView',
             'serviceLines.transportDetail.vehicle', 'serviceLines.visaDetail.visaType',
             'serviceLines.otherDetail.service', 'serviceLines.charges.chargeType',
         ]);
@@ -148,7 +149,7 @@ abstract class BaseTravelInvoiceController extends Controller
     public function edit(string $id)
     {
         $invoice = $this->findForType($id, [
-            'passengers', 'serviceLines.ticketDetail.flights', 'serviceLines.hotelDetail',
+            'passengers', 'serviceLines.ticketDetail.flights', 'serviceLines.hotelDetail.rooms',
             'serviceLines.transportDetail', 'serviceLines.visaDetail', 'serviceLines.otherDetail',
             'serviceLines.charges',
         ]);
@@ -363,6 +364,23 @@ abstract class BaseTravelInvoiceController extends Controller
             'lines.*.detail.room_qty' => 'nullable|integer|min:0',
             'lines.*.detail.extra_bed_qty' => 'nullable|integer|min:0',
             'lines.*.detail.booking_name' => 'nullable|string|max:255',
+
+            // Hotel tab fix round 2: dual receivable/payable currency+rate,
+            // agent commission, and the Room Details grid (see the
+            // 2026_10_03_070000 / 070100 migrations and ServiceLineWriter).
+            'lines.*.detail.receivable_currency' => 'nullable|string|max:3',
+            'lines.*.detail.receivable_exchange_rate' => 'nullable|numeric|min:0',
+            'lines.*.detail.payable_currency' => 'nullable|string|max:3',
+            'lines.*.detail.payable_exchange_rate' => 'nullable|numeric|min:0',
+            'lines.*.detail.agent_commission_percent' => 'nullable|numeric|min:0|max:100',
+            'lines.*.detail.agent_commission_amount' => 'nullable|numeric',
+            'lines.*.detail.rooms' => 'nullable|array',
+            'lines.*.detail.rooms.*.hotel_room_id' => 'nullable|exists:hotel_rooms,id',
+            'lines.*.detail.rooms.*.room_view_id' => 'nullable|exists:room_views,id',
+            'lines.*.detail.rooms.*.qty' => 'nullable|integer|min:0',
+            'lines.*.detail.rooms.*.rate' => 'nullable|numeric|min:0',
+            'lines.*.detail.rooms.*.total_amount' => 'nullable|numeric|min:0',
+
             'lines.*.detail.vehicle_id' => 'nullable|exists:vehicles,id',
             'lines.*.detail.visa_type_id' => 'nullable|exists:visa_types,id',
             'lines.*.detail.apply_date' => 'nullable|date',
