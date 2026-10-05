@@ -134,7 +134,7 @@
     .not-persisted-field { background-image: linear-gradient(45deg, rgba(255,193,7,.08) 25%, transparent 25%, transparent 50%, rgba(255,193,7,.08) 50%, rgba(255,193,7,.08) 75%, transparent 75%, transparent); background-size: 8px 8px; }
     .field-note { font-size: .72rem; color: #997404; }
 </style>
-<div class="tabs">
+
 <ul class="nav nav-tabs" id="invoiceTabs" role="tablist">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general" type="button">General Information</button></li>
     @foreach($activeTabs as $type => $label)
@@ -142,7 +142,7 @@
     @endforeach
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-summary" type="button">Invoice Summary</button></li>
 </ul>
-</div>
+
 <div class="tab-content border border-top-0 p-3 mb-3">
 
     {{-- ============ General Information ============ --}}
@@ -458,7 +458,7 @@
         <div class="line-card" data-type="hotel" data-charge-idx="0" data-room-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
 
-            <h4 class="fw-bold text-uppercase text-dark mb-2">Booking Details</h4>
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Booking Details</h6>
             <div class="row">
                 <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control hotel-checkin" onchange="syncHotelNights(this.closest('.line-card'))"></div>
                 <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control hotel-checkout" onchange="syncHotelNights(this.closest('.line-card'))"></div>
@@ -529,7 +529,7 @@
             </div>
 
             <hr class="my-2">
-            <h4 class="fw-bold text-uppercase text-dark mb-2">Room Details</h4>
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Room Details</h6>
             <table class="table table-bordered table-sm mini-table hotel-rooms-table">
                 <thead><tr><th>Room Type</th><th>Room View</th><th width="12%">No. of Room</th><th width="16%">Rate</th><th width="16%">Total Amount</th><th width="36"></th></tr></thead>
                 <tbody></tbody>
@@ -558,8 +558,7 @@
             <hr class="my-2">
             <div class="row">
                 <div class="col-md-6">
-                    <h4 class="fw-bold text-uppercase text-dark mb-2">Charges Details</h4>
-
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Receivables</h6>
                     <div class="row">
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Receivable (F)</label>
@@ -579,6 +578,7 @@
                     <div class="text-end"><span class="text-muted">Receivable Amount (Converted):</span> <span class="fw-bold hotel-recv-converted">0.00</span></div>
                 </div>
                 <div class="col-md-6">
+                    <h6 class="text-uppercase text-muted small fw-bold mb-2">4. Payables</h6>
                     <div class="row">
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Payable (F)</label>
@@ -689,8 +689,7 @@
         <div class="line-card" data-type="transport" data-charge-idx="0" data-vehicle-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="transport">
 
-            <h4 class="fw-bold text-uppercase text-dark mb-2">Transport Details</h4>
-
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Transport Details</h6>
             <div class="row">
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Supplier</label>
@@ -725,8 +724,7 @@
             </div>
 
             <hr class="my-2">
-            <h4 class="fw-bold text-uppercase text-dark mb-2">Vehicle Details</h4>
-
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Vehicle Details</h6>
             <table class="table table-bordered table-sm mini-table transport-vehicles-table">
                 <thead><tr><th>Vehicle</th><th>Sector</th><th width="36"></th></tr></thead>
                 <tbody></tbody>
@@ -745,6 +743,14 @@
                 </tr>
             </template>
 
+            <div class="mb-1">
+                <label class="form-label d-block">Charges <small class="field-note">(informational — not netted into PSF below)</small></label>
+                <table class="table table-bordered table-sm mini-table charges-table">
+                    <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addChargeRow(this.closest('.line-card'))">+ Add Charge</button>
+            </div>
             <template class="charge-tpl">
                 <tr>
                     <td>
@@ -760,8 +766,7 @@
             </template>
 
             <hr class="my-2">
-            <h4 class="fw-bold text-uppercase text-dark mb-2">Charges Details</h4>
-
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Charges Details</h6>
             <div class="row">
                 <div class="col-md-6">
                     <div class="row">
@@ -804,7 +809,6 @@
             </div>
 
             <hr class="my-2">
-            
             <div class="row align-items-end">
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Agent Commission %</label>
@@ -819,23 +823,202 @@
                     <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
                 </div>
             </div>
+        </div>
+    </template>
+    @endif
 
+    {{-- ============ Visa: dedicated block (same pattern as Hotel / Transport) ============
+         FRONTEND STRUCTURE ONLY (per client: backend is built once every tab
+         is approved). Sections:
+           1. Visa Details (common/master) — Supplier / Currency / Visa Agency /
+              Category (Visa Type) / Reference No / Entry Date / Exit Date /
+              Visa Rate / Remarks
+           2. Passenger Visa Details — grid, one row per passenger picked from
+              the Passengers table in General Information, with Type
+           3. Charges Details — dual receivable/payable currency+rate, Agent
+              Commission %, PSF (identical to Hotel / Transport)
+           4. Other Charges — the same charges mini-table as Hotel / Transport
+
+         Still saved by the existing backend: Supplier, Currency, Visa Type,
+         Reference No, Remarks, Receivable (F), Payable (F), Other Charges.
+         Everything else here is marked "(not saved yet)" and has no `name`
+         attribute, so it neither posts nor fails validation.
+
+         Template dropdown, Apply Date and Expiry Date are removed from the UI.
+         Apply/Expiry stay as HIDDEN inputs so re-saving an older visa line
+         doesn't wipe the dates it already has.
+    --}}
+    @if(isset($activeTabs['visa']))
+    <div class="tab-pane fade" id="tab-visa">
+        <div id="cards-visa"></div>
+        <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('visa')">+ Add Visa Line</button>
+        <div class="card mt-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+                <span class="text-muted">Visa lines total receivable (local currency)</span>
+                <h5 class="mb-0" id="visa-tab-total-receivable">0.00</h5>
+            </div>
+        </div>
+    </div>
+
+    <template id="tpl-visa">
+        <div class="line-card" data-type="visa" data-charge-idx="0">
+            <input type="hidden" name="lines[__IDX__][service_type]" value="visa">
+            <input type="hidden" name="lines[__IDX__][detail][apply_date]">
+            <input type="hidden" name="lines[__IDX__][detail][expiry_date]">
+
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Visa Details</h6>
+            <div class="row">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Supplier</label>
+                    <select name="lines[__IDX__][supplier_id]" class="form-control select2-js line-field">
+                        <option value="">— None —</option>
+                        @foreach($suppliers as $s)<option value="{{ $s->id }}">{{ $s->is_flagged ? '⚠ ' : '' }}{{ $s->name }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Currency <small class="text-muted">(invoice)</small></label>
+                    <select name="lines[__IDX__][currency]" class="form-control line-currency line-field">
+                        @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Visa Agency <small class="field-note">(not saved yet)</small></label>
+                    <select class="form-control not-persisted-field">
+                        <option value="">— None —</option>
+                        @foreach($suppliers->where('type', 'visa_agency') as $s)<option value="{{ $s->id }}">{{ $s->name }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Category / Visa Type</label>
+                    <select name="lines[__IDX__][detail][visa_type_id]" class="form-control select2-js">
+                        <option value="">— None —</option>
+                        @foreach($visaTypes as $vt)<option value="{{ $vt->id }}">{{ $vt->name }}</option>@endforeach
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Reference No</label>
+                    <input type="text" name="lines[__IDX__][detail][reference_no]" class="form-control">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-2 mb-2"><label class="form-label">Entry Date <small class="field-note">(not saved yet)</small></label><input type="date" class="form-control not-persisted-field"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Exit Date <small class="field-note">(not saved yet)</small></label><input type="date" class="form-control not-persisted-field"></div>
+                <div class="col-md-2 mb-2"><label class="form-label">Visa Rate <small class="field-note">(not saved yet)</small></label><input type="number" step="any" min="0" value="0" class="form-control not-persisted-field"></div>
+                <div class="col-md-6 mb-2"><label class="form-label">Remarks</label><input type="text" name="lines[__IDX__][description]" class="form-control"></div>
+            </div>
+
+            <hr class="my-2">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Passenger Visa Details <small class="field-note">(not saved yet)</small></h6>
+            <div class="small text-muted mb-1">Passengers are picked from the Passengers list in General Information.</div>
+            <table class="table table-bordered table-sm mini-table visa-pax-table">
+                <thead><tr><th>Passenger</th><th width="20%">Type</th><th width="36"></th></tr></thead>
+                <tbody></tbody>
+            </table>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addVisaPaxRow(this.closest('.line-card'))">+ Add Passenger</button>
+            <template class="visa-pax-tpl">
+                <tr>
+                    <td>
+                        <select class="form-control form-control-sm visa-pax-select not-persisted-field" onchange="onVisaPaxChange(this)">
+                            <option value="">— Select Passenger —</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select class="form-control form-control-sm visa-pax-type not-persisted-field">
+                            <option value="adult">Adult</option><option value="child">Child</option><option value="infant">Infant</option>
+                        </select>
+                    </td>
+                    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove();"><i class="fas fa-times"></i></button></td>
+                </tr>
+            </template>
+
+            <hr class="my-2">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Charges Details <small class="field-note">(rates, currencies &amp; commission not saved yet)</small></h6>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Receivable (F)</label>
+                            <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0" oninput="recalcVisaFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Exch. Rate</label>
+                            <input type="number" step="any" class="form-control visa-recv-rate not-persisted-field" value="1" oninput="recalcVisaFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Currency</label>
+                            <select class="form-control visa-recv-currency not-persisted-field">
+                                @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-end"><span class="text-muted">Receivable Amount (Converted):</span> <span class="fw-bold visa-recv-converted">0.00</span></div>
+                </div>
+                <div class="col-md-6">
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Payable (F)</label>
+                            <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0" oninput="recalcVisaFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Exch. Rate</label>
+                            <input type="number" step="any" class="form-control visa-pay-rate not-persisted-field" value="1" oninput="recalcVisaFinance(this.closest('.line-card'))">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Currency</label>
+                            <select class="form-control visa-pay-currency not-persisted-field">
+                                @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-end"><span class="text-muted">Payable Amount (Converted):</span> <span class="fw-bold visa-pay-converted">0.00</span></div>
+                </div>
+            </div>
+
+            <hr class="my-2">
+            <div class="row align-items-end">
+                <div class="col-md-3 mb-2">
+                    <label class="form-label">Agent Commission %</label>
+                    <input type="number" step="any" min="0" max="100" class="form-control visa-commission-pct not-persisted-field" value="0" oninput="recalcVisaFinance(this.closest('.line-card'))">
+                </div>
+                <div class="col-md-3 mb-2"><span class="text-muted">Commission Amount:</span> <span class="fw-bold visa-commission-amount-display">0.00</span></div>
+                <div class="col-md-4 mb-2 text-end">
+                    <span class="text-muted">PSF (Receivable − Payable, local):</span> <span class="line-income fw-bold">0.00</span>
+                </div>
+                <div class="col-md-2 mb-2 text-end">
+                    <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.line-card').remove(); recalcTotals();"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+
+            <hr class="my-2">
+            <h6 class="text-uppercase text-muted small fw-bold mb-2">4. Other Charges</h6>
             <div class="mb-1">
-                <label class="form-label d-block">Charges <small class="field-note">(informational — not netted into PSF below)</small></label>
+                <label class="form-label d-block">Other Charges / Discount (SPO / WHT / COM / PSF / Tax ...) <small class="field-note">(informational — not netted into PSF above)</small></label>
                 <table class="table table-bordered table-sm mini-table charges-table">
                     <thead><tr><th>Charge Type</th><th width="18%">Value</th><th width="20%">Amount (+/-)</th><th width="36"></th></tr></thead>
                     <tbody></tbody>
                 </table>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addChargeRow(this.closest('.line-card'))">+ Add Charge</button>
             </div>
-
+            <template class="charge-tpl">
+                <tr>
+                    <td>
+                        <select name="lines[__IDX__][charges][__CIDX__][charge_type_id]" class="form-control form-control-sm charge-type" onchange="onChargeTypeChange(this)">
+                            <option value="">— Select —</option>
+                            @foreach($chargeTypes as $ct)<option value="{{ $ct->id }}" data-calc="{{ $ct->calculation_type }}" data-default="{{ $ct->default_value }}">{{ $ct->name }}</option>@endforeach
+                        </select>
+                    </td>
+                    <td><input type="number" step="any" name="lines[__IDX__][charges][__CIDX__][value]" class="form-control form-control-sm charge-value" value="0"></td>
+                    <td><input type="number" step="any" name="lines[__IDX__][charges][__CIDX__][computed_amount]" class="form-control form-control-sm charge-amount" value="0"></td>
+                    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); recalcCard(this.closest('.line-card'));"><i class="fas fa-times"></i></button></td>
+                </tr>
+            </template>
         </div>
     </template>
     @endif
 
     {{-- ============ One tab + one <template> per remaining service type ============ --}}
     @foreach($activeTabs as $type => $label)
-    @continue($type === 'ticket' || $type === 'hotel' || $type === 'transport')
+    @continue($type === 'ticket' || $type === 'hotel' || $type === 'transport' || $type === 'visa')
     <div class="tab-pane fade" id="tab-{{ $type }}">
         <div id="cards-{{ $type }}"></div>
         <button type="button" class="btn btn-success btn-sm" onclick="addLineCard('{{ $type }}')">+ Add {{ $label }} Line</button>
@@ -912,19 +1095,9 @@
             @if($type === 'transport')
             @endif
 
+            {{-- Dead branch: Visa is now rendered by its own dedicated block
+                 above (tpl-visa), never through this generic template. --}}
             @if($type === 'visa')
-            <div class="row">
-                <div class="col-md-3 mb-2">
-                    <label class="form-label">Visa Type</label>
-                    <select name="lines[__IDX__][detail][visa_type_id]" class="form-control select2-js">
-                        <option value="">— None —</option>
-                        @foreach($visaTypes as $vt)<option value="{{ $vt->id }}">{{ $vt->name }}</option>@endforeach
-                    </select>
-                </div>
-                <div class="col-md-3 mb-2"><label class="form-label">Apply Date</label><input type="date" name="lines[__IDX__][detail][apply_date]" class="form-control"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Expiry Date</label><input type="date" name="lines[__IDX__][detail][expiry_date]" class="form-control"></div>
-                <div class="col-md-3 mb-2"><label class="form-label">Reference No</label><input type="text" name="lines[__IDX__][detail][reference_no]" class="form-control"></div>
-            </div>
             @endif
 
             @if($type === 'other')
@@ -991,6 +1164,7 @@
     function addPaxRow() {
         const tbody = document.querySelector('#paxTable tbody');
         const clone = tbody.querySelector('tr').cloneNode(true);
+        delete clone.dataset.paxUid; // cloneNode copies data-* — the Visa grid keys passengers by this id
         clone.querySelectorAll('input, select').forEach(el => {
             el.name = el.name.replace(/passengers\[\d+\]/, `passengers[${paxIndex}]`);
             if (el.tagName === 'SELECT') el.selectedIndex = 0; else el.value = '';
@@ -1173,6 +1347,99 @@
         recalcTotals();
     }
 
+    // Visa tab: same dual-currency / PSF / commission math as Hotel and
+    // Transport, under `.visa-*` classes. Written once, parameterised by
+    // class prefix, so Hotel's and Transport's approved functions above stay
+    // exactly as they are.
+    function recalcDualFinance(card, prefix) {
+        if (!card) return;
+        const q = sel => card.querySelector(sel);
+        const recv = parseFloat(q('.line-recv')?.value) || 0;
+        const recvRate = parseFloat(q(`.${prefix}-recv-rate`)?.value) || 0;
+        const pay = parseFloat(q('.line-pay')?.value) || 0;
+        const payRate = parseFloat(q(`.${prefix}-pay-rate`)?.value) || 0;
+        const commissionPct = parseFloat(q(`.${prefix}-commission-pct`)?.value) || 0;
+
+        const recvConverted = recv * recvRate;
+        const payConverted = pay * payRate;
+        const psf = recvConverted - payConverted;
+
+        const set = (sel, v) => { const el = q(sel); if (el) el.textContent = v.toFixed(2); };
+        set(`.${prefix}-recv-converted`, recvConverted);
+        set(`.${prefix}-pay-converted`, payConverted);
+        set(`.${prefix}-commission-amount-display`, psf * commissionPct / 100);
+
+        const psfEl = q('.line-income');
+        if (psfEl) {
+            psfEl.textContent = psf.toFixed(2);
+            psfEl.className = 'line-income fw-bold ' + (psf < 0 ? 'negative' : 'positive');
+        }
+        recalcTotals();
+    }
+
+    function recalcVisaFinance(card) { recalcDualFinance(card, 'visa'); }
+
+    function recalcVisaTabTotal() {
+        const totalEl = document.getElementById('visa-tab-total-receivable');
+        if (!totalEl) return;
+        let total = 0;
+        document.querySelectorAll('#cards-visa .line-card').forEach(card => {
+            total += (parseFloat(card.querySelector('.line-recv')?.value) || 0) * (parseFloat(card.querySelector('.visa-recv-rate')?.value) || 0);
+        });
+        totalEl.textContent = total.toFixed(2);
+    }
+
+    // ---- Visa: Passenger grid, fed from the General Information passengers table ----
+    let paxUidSeq = 0;
+    function visaPaxList() {
+        return [...document.querySelectorAll('#paxTable tbody tr')].map((tr, i) => {
+            if (!tr.dataset.paxUid) tr.dataset.paxUid = ++paxUidSeq;
+            const name = tr.querySelector('input[name$="[name]"]')?.value.trim();
+            return {
+                uid: tr.dataset.paxUid,
+                label: name || `Passenger ${i + 1}`,
+                type: tr.querySelector('select[name$="[pax_type]"]')?.value || 'adult',
+            };
+        });
+    }
+
+    function fillVisaPaxSelect(select, list) {
+        const current = select.value;
+        select.innerHTML = '<option value="">— Select Passenger —</option>';
+        list.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.uid;
+            opt.textContent = p.label;
+            select.appendChild(opt);
+        });
+        if (list.some(p => p.uid === current)) select.value = current;
+    }
+
+    // Re-sync every Visa grid row with the passengers table: refresh the
+    // name options (keeping each row's pick) and the Type of the picked pax.
+    function refreshVisaPaxRows() {
+        const list = visaPaxList();
+        document.querySelectorAll('.visa-pax-table tbody tr').forEach(row => {
+            const select = row.querySelector('.visa-pax-select');
+            fillVisaPaxSelect(select, list);
+            const pax = list.find(p => p.uid === select.value);
+            if (pax) row.querySelector('.visa-pax-type').value = pax.type;
+        });
+    }
+
+    function onVisaPaxChange(select) {
+        const pax = visaPaxList().find(p => p.uid === select.value);
+        if (pax) select.closest('tr').querySelector('.visa-pax-type').value = pax.type;
+    }
+
+    function addVisaPaxRow(card) {
+        const tpl = card.querySelector('.visa-pax-tpl');
+        const row = tpl.content.firstElementChild.cloneNode(true);
+        card.querySelector('.visa-pax-table tbody').appendChild(row);
+        fillVisaPaxSelect(row.querySelector('.visa-pax-select'), visaPaxList());
+        return row;
+    }
+
     function onTemplateChange(select) {
         const card = select.closest('.line-card');
         const opt = select.options[select.selectedIndex];
@@ -1210,7 +1477,7 @@
             // Hotel/Transport cards have no single `.line-rate` — fall back
             // to that card's own Receivable exchange rate for the
             // percentage base instead.
-            const rateEl = card.querySelector('.line-rate') || card.querySelector('.hotel-recv-rate') || card.querySelector('.transport-recv-rate');
+            const rateEl = card.querySelector('.line-rate') || card.querySelector('.hotel-recv-rate') || card.querySelector('.transport-recv-rate') || card.querySelector('.visa-recv-rate');
             const rate = parseFloat(rateEl?.value) || 0;
             const recv = parseFloat(card.querySelector('.line-recv').value) || 0;
             amountInput.value = ((recv * rate) * value / 100).toFixed(2);
@@ -1355,6 +1622,10 @@
         }
         if (card.dataset.type === 'transport') {
             recalcTransportFinance(card);
+            return;
+        }
+        if (card.dataset.type === 'visa') {
+            recalcVisaFinance(card);
             return;
         }
         const rate = parseFloat(card.querySelector('.line-rate').value) || 0;
@@ -1626,13 +1897,13 @@
             const recvAmt = parseFloat(card.querySelector('.line-recv')?.value) || 0;
             const payAmt = parseFloat(card.querySelector('.line-pay')?.value) || 0;
             let recv, pay, income;
-            if (type === 'hotel' || type === 'transport') {
+            if (type === 'hotel' || type === 'transport' || type === 'visa') {
                 // Dual currency: Receivable and Payable each convert with
                 // their own exchange rate, and PSF (shown here as the
                 // row's "Income") excludes charges per the client's exact
                 // "PSF = receivable − payable" formula. Same rule for
                 // Transport as Hotel, just under its own `.transport-*` classes.
-                const prefix = type === 'hotel' ? 'hotel' : 'transport';
+                const prefix = type; // hotel | transport | visa
                 const recvRate = parseFloat(card.querySelector(`.${prefix}-recv-rate`)?.value) || 0;
                 const payRate = parseFloat(card.querySelector(`.${prefix}-pay-rate`)?.value) || 0;
                 recv = recvAmt * recvRate;
@@ -1685,6 +1956,7 @@
         document.getElementById('totalIncome').textContent = totalIncome.toFixed(2);
         recalcHotelTabTotal();
         recalcTransportTabTotal();
+        recalcVisaTabTotal();
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -1744,6 +2016,15 @@
                 if (!label || label === 'Select Customer') return;
                 document.querySelectorAll('.hotel-booking-name').forEach(el => { el.value = label; });
             });
+        }
+
+        // Visa tab: keep the Passenger grid in step with the General
+        // Information passengers table (typing a name, changing a type,
+        // adding or removing a passenger).
+        const paxTbody = document.querySelector('#paxTable tbody');
+        if (paxTbody) {
+            ['input', 'change'].forEach(evt => paxTbody.addEventListener(evt, refreshVisaPaxRows));
+            new MutationObserver(refreshVisaPaxRows).observe(paxTbody, { childList: true });
         }
 
         recalcTotals();
