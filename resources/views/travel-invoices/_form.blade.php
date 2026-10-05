@@ -134,15 +134,15 @@
     .not-persisted-field { background-image: linear-gradient(45deg, rgba(255,193,7,.08) 25%, transparent 25%, transparent 50%, rgba(255,193,7,.08) 50%, rgba(255,193,7,.08) 75%, transparent 75%, transparent); background-size: 8px 8px; }
     .field-note { font-size: .72rem; color: #997404; }
 </style>
-
-<ul class="nav nav-tabs" id="invoiceTabs" role="tablist">
-    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general" type="button">General Information</button></li>
-    @foreach($activeTabs as $type => $label)
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-{{ $type }}" type="button">{{ $label }}</button></li>
-    @endforeach
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-summary" type="button">Invoice Summary</button></li>
-</ul>
-
+<div class="tabs">
+    <ul class="nav nav-tabs" id="invoiceTabs" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-general" type="button">General Information</button></li>
+        @foreach($activeTabs as $type => $label)
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-{{ $type }}" type="button">{{ $label }}</button></li>
+        @endforeach
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-summary" type="button">Invoice Summary</button></li>
+    </ul>
+</div>
 <div class="tab-content border border-top-0 p-3 mb-3">
 
     {{-- ============ General Information ============ --}}
@@ -458,7 +458,7 @@
         <div class="line-card" data-type="hotel" data-charge-idx="0" data-room-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="hotel">
 
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Booking Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Booking Details</h4>
             <div class="row">
                 <div class="col-md-2 mb-2"><label class="form-label">Check-in</label><input type="date" name="lines[__IDX__][detail][check_in]" class="form-control hotel-checkin" onchange="syncHotelNights(this.closest('.line-card'))"></div>
                 <div class="col-md-2 mb-2"><label class="form-label">Check-out</label><input type="date" name="lines[__IDX__][detail][check_out]" class="form-control hotel-checkout" onchange="syncHotelNights(this.closest('.line-card'))"></div>
@@ -529,7 +529,7 @@
             </div>
 
             <hr class="my-2">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Room Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Room Details</h4>
             <table class="table table-bordered table-sm mini-table hotel-rooms-table">
                 <thead><tr><th>Room Type</th><th>Room View</th><th width="12%">No. of Room</th><th width="16%">Rate</th><th width="16%">Total Amount</th><th width="36"></th></tr></thead>
                 <tbody></tbody>
@@ -689,7 +689,7 @@
         <div class="line-card" data-type="transport" data-charge-idx="0" data-vehicle-idx="0">
             <input type="hidden" name="lines[__IDX__][service_type]" value="transport">
 
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">1. Transport Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Transport Details</h4>
             <div class="row">
                 <div class="col-md-3 mb-2">
                     <label class="form-label">Supplier</label>
@@ -724,7 +724,7 @@
             </div>
 
             <hr class="my-2">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">2. Vehicle Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Vehicle Details</h4>
             <table class="table table-bordered table-sm mini-table transport-vehicles-table">
                 <thead><tr><th>Vehicle</th><th>Sector</th><th width="36"></th></tr></thead>
                 <tbody></tbody>
@@ -766,7 +766,7 @@
             </template>
 
             <hr class="my-2">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Charges Details</h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Charges Details</h4>
             <div class="row">
                 <div class="col-md-6">
                     <div class="row">
@@ -932,7 +932,7 @@
             </template>
 
             <hr class="my-2">
-            <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Charges Details <small class="field-note">(rates, currencies &amp; commission not saved yet)</small></h6>
+            <h4 class="fw-bold text-uppercase text-dark mb-2">Charges Details</h4>
             <div class="row">
                 <div class="col-md-6">
                     <div class="row">
