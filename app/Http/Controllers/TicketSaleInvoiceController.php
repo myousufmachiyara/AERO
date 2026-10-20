@@ -217,7 +217,7 @@ class TicketSaleInvoiceController extends Controller
         $pdf->AddPage();
 
         // ── Header: logo + company block ────────────────────────────
-        $logoPath = public_path('assets/img/aero-logo.jpeg');
+        $logoPath = public_path(config('travel.company_logo_path', 'assets/img/aero-logo.png'));
         if (file_exists($logoPath)) {
             $pdf->Image($logoPath, 12, 8, 26);
         } else {
@@ -435,31 +435,9 @@ class TicketSaleInvoiceController extends Controller
             'refund_deduction_company' => 'required|numeric|min:0',
         ]);
 
-        // Client fix: same two-way split as Void — the deduction kept by
-        // the airline/supplier vs. the deduction kept by the company
-        // itself (posted separately, see TicketInvoicePostingService).
-        // refund_charges is kept as their sum so refund_amount/
-        // refund_profit's formulas don't need to change.
-        $refundCharges = round($validated['refund_deduction_supplier'] + $validated['refund_deduction_company'], 2);
-        $refundAmount = round($validated['refund_fare_amount'] + $validated['refund_tax_amount'] - $refundCharges, 2);
-        $refundProfit = round(((float) $line->total_amount) - $refundAmount, 2);
-
         DB::beginTransaction();
         try {
-            $line->update([
-                'status' => TicketSaleInvoiceLine::STATUS_REFUNDED,
-                'refund_date' => $validated['refund_date'],
-                'refund_adjustment_date' => $validated['refund_adjustment_date'] ?? $validated['refund_date'],
-                'refund_fare_amount' => $validated['refund_fare_amount'],
-                'refund_tax_amount' => $validated['refund_tax_amount'],
-                'refund_deduction_supplier' => $validated['refund_deduction_supplier'],
-                'refund_deduction_company' => $validated['refund_deduction_company'],
-                'refund_charges' => $refundCharges,
-                'refund_amount' => $refundAmount,
-                'refund_profit' => $refundProfit,
-                'updated_by' => auth()->id(),
-            ]);
-
+            $this->applyRefundToLine($line, $validated);
             $invoice->recalculateTotals();
 
             DB::commit();
@@ -493,19 +471,9 @@ class TicketSaleInvoiceController extends Controller
             'void_deduction_company' => 'required|numeric|min:0',
         ]);
 
-        $totalDeduction = round($validated['void_deduction_supplier'] + $validated['void_deduction_company'], 2);
-
         DB::beginTransaction();
         try {
-            $line->update([
-                'status' => TicketSaleInvoiceLine::STATUS_VOIDED,
-                'void_date' => now()->toDateString(),
-                'void_deduction_supplier' => $validated['void_deduction_supplier'],
-                'void_deduction_company' => $validated['void_deduction_company'],
-                'void_total_deduction' => $totalDeduction,
-                'updated_by' => auth()->id(),
-            ]);
-
+            $this->applyVoidToLine($line, $validated);
             $invoice->recalculateTotals();
 
             DB::commit();
@@ -517,6 +485,181 @@ class TicketSaleInvoiceController extends Controller
 
             return back()->with('error', 'Could not void ticket: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Bulk refund — "10 tickets, refund 5 of them at once" per client
+     * feedback. Deliberately NOT a per-line editable amount like the
+     * single-ticket Refund form: every selected ticket is refunded in
+     * full (its own stored fare_amount/tax_amount), with the SAME
+     * supplier/company deduction split applied to each one. A partial
+     * refund (different fare/tax than what was charged) still goes
+     * through the single-ticket Refund form, which this leaves untouched.
+     * This is a disclosed judgment call, not something the client spec'd.
+     */
+    public function bulkRefundLines(Request $request, string $invoiceId)
+    {
+        $invoice = TicketSaleInvoice::findOrFail($invoiceId);
+
+        if ($invoice->isPosted()) {
+            return back()->with('error', 'Unpost this invoice before refunding tickets.');
+        }
+
+        $validated = $request->validate([
+            'line_ids' => 'required|array|min:1',
+            'line_ids.*' => 'integer',
+            'refund_date' => 'required|date',
+            'refund_adjustment_date' => 'nullable|date',
+            'refund_deduction_supplier' => 'required|numeric|min:0',
+            'refund_deduction_company' => 'required|numeric|min:0',
+        ]);
+
+        // Scoped to THIS invoice's currently-active lines only — a
+        // tampered/stale line id for another invoice, or one that's
+        // already refunded/voided by the time this submits, is silently
+        // dropped rather than erroring the whole batch.
+        $lines = $invoice->lines()
+            ->whereIn('id', $validated['line_ids'])
+            ->where('status', TicketSaleInvoiceLine::STATUS_ACTIVE)
+            ->get();
+
+        if ($lines->isEmpty()) {
+            return back()->with('error', 'None of the selected tickets could be refunded — they may already be refunded/voided. Refresh and try again.');
+        }
+
+        DB::beginTransaction();
+        try {
+            foreach ($lines as $line) {
+                $this->applyRefundToLine($line, [
+                    'refund_date' => $validated['refund_date'],
+                    'refund_adjustment_date' => $validated['refund_adjustment_date'] ?? $validated['refund_date'],
+                    'refund_fare_amount' => (float) $line->fare_amount,
+                    'refund_tax_amount' => (float) $line->tax_amount,
+                    'refund_deduction_supplier' => $validated['refund_deduction_supplier'],
+                    'refund_deduction_company' => $validated['refund_deduction_company'],
+                ]);
+            }
+
+            $invoice->recalculateTotals();
+
+            DB::commit();
+
+            $count = $lines->count();
+            $skipped = count($validated['line_ids']) - $count;
+            $msg = $count . ' ticket(s) refunded.' . ($skipped > 0 ? " ({$skipped} selected ticket(s) were skipped — no longer active.)" : '');
+
+            return redirect()->route('ticket_invoices.show', $invoice->id)->with('success', $msg);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('[TicketSaleInvoice] bulk refund failed: ' . $e->getMessage());
+
+            return back()->with('error', 'Could not refund the selected tickets: ' . $e->getMessage());
+        }
+    }
+
+    /** Bulk void — same "select several, one deduction split for all" shape as bulkRefundLines() above. */
+    public function bulkVoidLines(Request $request, string $invoiceId)
+    {
+        $invoice = TicketSaleInvoice::findOrFail($invoiceId);
+
+        if ($invoice->isPosted()) {
+            return back()->with('error', 'Unpost this invoice before voiding tickets.');
+        }
+        if (!now()->isSameDay($invoice->invoice_date)) {
+            return back()->with('error', 'Tickets can only be voided on the same day they were issued (invoice date: ' . $invoice->invoice_date->format('d/m/Y') . '). Use Refund instead.');
+        }
+
+        $validated = $request->validate([
+            'line_ids' => 'required|array|min:1',
+            'line_ids.*' => 'integer',
+            'void_deduction_supplier' => 'required|numeric|min:0',
+            'void_deduction_company' => 'required|numeric|min:0',
+        ]);
+
+        $lines = $invoice->lines()
+            ->whereIn('id', $validated['line_ids'])
+            ->where('status', TicketSaleInvoiceLine::STATUS_ACTIVE)
+            ->get();
+
+        if ($lines->isEmpty()) {
+            return back()->with('error', 'None of the selected tickets could be voided — they may already be refunded/voided. Refresh and try again.');
+        }
+
+        DB::beginTransaction();
+        try {
+            foreach ($lines as $line) {
+                $this->applyVoidToLine($line, [
+                    'void_deduction_supplier' => $validated['void_deduction_supplier'],
+                    'void_deduction_company' => $validated['void_deduction_company'],
+                ]);
+            }
+
+            $invoice->recalculateTotals();
+
+            DB::commit();
+
+            $count = $lines->count();
+            $skipped = count($validated['line_ids']) - $count;
+            $msg = $count . ' ticket(s) voided.' . ($skipped > 0 ? " ({$skipped} selected ticket(s) were skipped — no longer active.)" : '');
+
+            return redirect()->route('ticket_invoices.show', $invoice->id)->with('success', $msg);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('[TicketSaleInvoice] bulk void failed: ' . $e->getMessage());
+
+            return back()->with('error', 'Could not void the selected tickets: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * The actual refund math/write, shared by the single-ticket and bulk
+     * refund endpoints so the two can never drift out of sync. $data must
+     * carry refund_date, refund_adjustment_date, refund_fare_amount,
+     * refund_tax_amount, refund_deduction_supplier, refund_deduction_company.
+     */
+    protected function applyRefundToLine(TicketSaleInvoiceLine $line, array $data): void
+    {
+        // Client fix: same two-way split as Void — the deduction kept by
+        // the airline/supplier vs. the deduction kept by the company
+        // itself (posted separately, see TicketInvoicePostingService).
+        // refund_charges is kept as their sum so refund_amount/
+        // refund_profit's formulas don't need to change.
+        $refundCharges = round($data['refund_deduction_supplier'] + $data['refund_deduction_company'], 2);
+        $refundAmount = round($data['refund_fare_amount'] + $data['refund_tax_amount'] - $refundCharges, 2);
+        $refundProfit = round(((float) $line->total_amount) - $refundAmount, 2);
+
+        $line->update([
+            'status' => TicketSaleInvoiceLine::STATUS_REFUNDED,
+            'refund_date' => $data['refund_date'],
+            'refund_adjustment_date' => $data['refund_adjustment_date'] ?? $data['refund_date'],
+            'refund_fare_amount' => $data['refund_fare_amount'],
+            'refund_tax_amount' => $data['refund_tax_amount'],
+            'refund_deduction_supplier' => $data['refund_deduction_supplier'],
+            'refund_deduction_company' => $data['refund_deduction_company'],
+            'refund_charges' => $refundCharges,
+            'refund_amount' => $refundAmount,
+            'refund_profit' => $refundProfit,
+            'updated_by' => auth()->id(),
+        ]);
+    }
+
+    /**
+     * The actual void math/write, shared by the single-ticket and bulk
+     * void endpoints. $data must carry void_deduction_supplier,
+     * void_deduction_company.
+     */
+    protected function applyVoidToLine(TicketSaleInvoiceLine $line, array $data): void
+    {
+        $totalDeduction = round($data['void_deduction_supplier'] + $data['void_deduction_company'], 2);
+
+        $line->update([
+            'status' => TicketSaleInvoiceLine::STATUS_VOIDED,
+            'void_date' => now()->toDateString(),
+            'void_deduction_supplier' => $data['void_deduction_supplier'],
+            'void_deduction_company' => $data['void_deduction_company'],
+            'void_total_deduction' => $totalDeduction,
+            'updated_by' => auth()->id(),
+        ]);
     }
 
     /** "Any agent when login can see his commission monthly" — self-scoped, no permission gate needed. */
@@ -584,15 +727,22 @@ class TicketSaleInvoiceController extends Controller
                 'pnr' => $l['pnr'] ?? null,
                 'ticket_no' => $l['ticket_no'] ?? null,
                 'trip_type' => $l['trip_type'] ?? 'one_way',
+                'ticket_type' => $l['ticket_type'] ?? 'international',
                 'leg1_from' => $l['leg1_from'] ?? null,
                 'leg1_stay' => $l['leg1_stay'] ?? null,
                 'leg1_to' => $l['leg1_to'] ?? null,
+                'leg1_departure_date' => $l['leg1_departure_date'] ?? null,
+                'leg1_departure_time' => $l['leg1_departure_time'] ?? null,
                 'leg2_from' => $l['leg2_from'] ?? null,
                 'leg2_stay' => $l['leg2_stay'] ?? null,
                 'leg2_to' => $l['leg2_to'] ?? null,
+                'leg2_departure_date' => $l['leg2_departure_date'] ?? null,
+                'leg2_departure_time' => $l['leg2_departure_time'] ?? null,
                 'fare_amount' => $l['fare_amount'] ?? 0,
                 'tax_amount' => $l['tax_amount'] ?? 0,
                 'apt_percent' => $l['apt_percent'] ?? 0,
+                'apt_charges' => $l['apt_charges'] ?? 0,
+                'apt_input_mode' => $l['apt_input_mode'] ?? TicketSaleInvoiceLine::INPUT_MODE_PERCENT,
                 'commission_percent' => $l['commission_percent'] ?? 0,
                 'wht_percent' => $l['wht_percent'] ?? 0,
                 'psf_percent' => $l['psf_percent'] ?? 0,
@@ -602,6 +752,7 @@ class TicketSaleInvoiceController extends Controller
                 'discount_percent' => $l['discount_percent'] ?? 0,
                 'discount_amount' => $l['discount_amount'] ?? 0,
                 'discount_input_mode' => $l['discount_input_mode'] ?? TicketSaleInvoiceLine::INPUT_MODE_PERCENT,
+                'airline_discount_amount' => $l['airline_discount_amount'] ?? 0,
                 'sales_agent_id' => $l['sales_agent_id'] ?? null,
                 'agent_commission_percent' => $l['agent_commission_percent'] ?? 0,
                 'sort_order' => $i,
@@ -713,15 +864,23 @@ class TicketSaleInvoiceController extends Controller
             'lines.*.pnr' => 'nullable|string|max:50',
             'lines.*.ticket_no' => 'nullable|string|max:20',
             'lines.*.trip_type' => 'nullable|in:one_way,return',
+            'lines.*.ticket_type' => ['nullable', Rule::in(TicketSaleInvoiceLine::TICKET_TYPES)],
+            'lines.*.leg1_departure_date' => 'nullable|date',
+            'lines.*.leg1_departure_time' => 'nullable|date_format:H:i',
+            'lines.*.leg2_departure_date' => 'nullable|date',
+            'lines.*.leg2_departure_time' => 'nullable|date_format:H:i',
             'lines.*.leg1_from' => 'nullable|string|max:100',
-            'lines.*.leg1_stay' => 'nullable|string|max:100',
+            'lines.*.leg1_stay' => 'nullable|string|max:255',
             'lines.*.leg1_to' => 'nullable|string|max:100',
             'lines.*.leg2_from' => 'nullable|string|max:100',
-            'lines.*.leg2_stay' => 'nullable|string|max:100',
+            'lines.*.leg2_stay' => 'nullable|string|max:255',
             'lines.*.leg2_to' => 'nullable|string|max:100',
             'lines.*.fare_amount' => 'nullable|numeric|min:0',
             'lines.*.tax_amount' => 'nullable|numeric|min:0',
             'lines.*.apt_percent' => 'nullable|numeric|min:0|max:100',
+            'lines.*.apt_charges' => 'nullable|numeric|min:0',
+            'lines.*.apt_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+            'lines.*.airline_discount_amount' => 'nullable|numeric|min:0',
             'lines.*.commission_percent' => 'nullable|numeric|min:0|max:100',
             'lines.*.wht_percent' => 'nullable|numeric|min:0|max:100',
             'lines.*.psf_percent' => 'nullable|numeric|min:0|max:100',

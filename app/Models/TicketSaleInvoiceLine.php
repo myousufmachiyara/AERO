@@ -9,12 +9,14 @@ class TicketSaleInvoiceLine extends Model
     protected $fillable = [
         'ticket_sale_invoice_id', 'supplier_id', 'airline_id',
         'pax_name', 'pax_type', 'pnr', 'ticket_no',
-        'trip_type', 'leg1_from', 'leg1_stay', 'leg1_to',
+        'trip_type', 'ticket_type', 'leg1_from', 'leg1_stay', 'leg1_to',
+        'leg1_departure_date', 'leg1_departure_time',
         'leg2_from', 'leg2_stay', 'leg2_to',
-        'fare_amount', 'tax_amount', 'apt_charges', 'apt_percent', 'commission_percent',
+        'leg2_departure_date', 'leg2_departure_time',
+        'fare_amount', 'tax_amount', 'apt_charges', 'apt_percent', 'apt_input_mode', 'commission_percent',
         'commission_amount', 'wht_amount', 'wht_percent',
         'psf_amount', 'psf_percent', 'psf_basis', 'psf_input_mode',
-        'discount_amount', 'discount_percent', 'discount_input_mode',
+        'discount_amount', 'discount_percent', 'discount_input_mode', 'airline_discount_amount',
         'total_amount', 'sales_agent_id', 'agent_commission_amount', 'agent_commission_percent',
         'status',
         'refund_date', 'refund_adjustment_date', 'refund_fare_amount',
@@ -40,6 +42,9 @@ class TicketSaleInvoiceLine extends Model
         'total_amount' => 'decimal:2',
         'agent_commission_amount' => 'decimal:2',
         'agent_commission_percent' => 'decimal:2',
+        'airline_discount_amount' => 'decimal:2',
+        'leg1_departure_date' => 'date',
+        'leg2_departure_date' => 'date',
         'refund_date' => 'date',
         'refund_adjustment_date' => 'date',
         'refund_fare_amount' => 'decimal:2',
@@ -57,6 +62,7 @@ class TicketSaleInvoiceLine extends Model
 
     public const PAX_TYPES = ['adult', 'child', 'infant'];
     public const TRIP_TYPES = ['one_way', 'return'];
+    public const TICKET_TYPES = ['domestic', 'international'];
 
     public const STATUS_ACTIVE = 'active';
     public const STATUS_REFUNDED = 'refunded';
@@ -183,7 +189,7 @@ class TicketSaleInvoiceLine extends Model
      *   commission_amount          = fare_amount * commission_percent / 100   (airline commission)
      *   wht_amount                 = commission_amount * wht_percent / 100    (withholding on that commission)
      *   total_amount               = fare + tax + apt_charges + psf_amount − discount
-     *   agent_commission_amount   = total_amount * agent_commission_percent / 100
+     *   agent_commission_amount   = psf_amount * agent_commission_percent / 100   (on PSF, not on the total)
      *
      * PSF and Discount are each "enter either side" pairs — psf_input_mode
      * / discount_input_mode says which of the percent/amount was actually
@@ -199,15 +205,23 @@ class TicketSaleInvoiceLine extends Model
      * wht_amount (WHT is a % of the commission, not the fare); PSF and
      * Discount are both resolved before total_amount (which consumes their
      * amounts); and total_amount is computed before agent_commission_amount
-     * (which is a % of the final total, not of the fare) — so nothing here
-     * is circular.
+     * (now a % of PSF; PSF is resolved earlier) — so nothing here is
+     * circular.
      */
     public function recalculate(): void
     {
         $fare = (float) $this->fare_amount;
         $tax = (float) $this->tax_amount;
 
-        $this->apt_charges = round($fare * ((float) $this->apt_percent) / 100, 2);
+        // APT is an "enter % or amount" pair, same as PSF/Discount (basis:
+        // fare). apt_input_mode says which side was typed in.
+        if ($this->apt_input_mode === self::INPUT_MODE_AMOUNT) {
+            $this->apt_percent = $fare > 0
+                ? round(((float) $this->apt_charges) / $fare * 100, 2)
+                : 0.0;
+        } else {
+            $this->apt_charges = round($fare * ((float) $this->apt_percent) / 100, 2);
+        }
 
         $psfBasisAmount = $this->psf_basis === self::PSF_BASIS_TOTAL
             ? round($fare + $tax + ((float) $this->apt_charges), 2)
@@ -241,7 +255,28 @@ class TicketSaleInvoiceLine extends Model
             2
         );
 
-        $this->agent_commission_amount = round(((float) $this->total_amount) * ((float) $this->agent_commission_percent) / 100, 2);
+        // Sale (agent/SPO) commission is a % of the PSF amount — not of the
+        // ticket total — per client feedback.
+        $this->agent_commission_amount = round(((float) $this->psf_amount) * ((float) $this->agent_commission_percent) / 100, 2);
+    }
+
+    /**
+     * Supplier Net per ticket (Summary section):
+     *   Fare + Tax + APT − Commission + WHT − Discount given by the airline.
+     * Supplier Total = this × number of tickets. Display figure only —
+     * ledger posting still uses effectiveAirlinePayable().
+     */
+    public function supplierNet(): float
+    {
+        return round(
+            ((float) $this->fare_amount)
+            + ((float) $this->tax_amount)
+            + ((float) $this->apt_charges)
+            - ((float) $this->commission_amount)
+            + ((float) $this->wht_amount)
+            - ((float) $this->airline_discount_amount),
+            2
+        );
     }
 
     /**

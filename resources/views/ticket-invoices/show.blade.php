@@ -27,6 +27,14 @@
             }
         }
     }
+
+    // Bulk Refund/Void (checkboxes in the Tickets table below) only make
+    // sense under the exact same conditions the existing single-ticket
+    // Refund/Void buttons already require: the invoice must still be
+    // pending, and the user needs edit permission. Computed once here
+    // rather than re-checked per row.
+    $canBulkAct = $invoice->isPending() && (auth()->user()?->can('ticket_invoices.edit') ?? false);
+    $activeLineCount = $invoice->lines->where('status', 'active')->count();
 @endphp
 
 @section('content')
@@ -102,13 +110,20 @@
                     <div class="col-md-2"><strong>Supplier:</strong> {{ $firstLine->supplier->name ?? '—' }}</div>
                     <div class="col-md-2"><strong>Airline:</strong> {{ $firstLine->airline->name ?? '—' }}</div>
                     <div class="col-md-2"><strong>PNR:</strong> {{ $firstLine->pnr ?: '—' }}</div>
+                    <div class="col-md-2"><strong>Ticket Type:</strong> {{ ucfirst($firstLine->ticket_type ?: 'international') }}</div>
                     <div class="col-md-2"><strong>Trip Type:</strong> {{ $firstLine->trip_type === 'return' ? 'Return' : 'One Way' }}</div>
+                </div>
+                <div class="row mb-2">
                     <div class="col-md-4"><strong>Cities:</strong> {{ $firstLine->citiesLabel() ?: '—' }}</div>
+                    <div class="col-md-4"><strong>Departure:</strong> {{ optional($firstLine->leg1_departure_date)->format('d/m/Y') ?: '—' }} {{ $firstLine->leg1_departure_time }}</div>
+                    @if($firstLine->trip_type === 'return')
+                    <div class="col-md-4"><strong>Return Departure:</strong> {{ optional($firstLine->leg2_departure_date)->format('d/m/Y') ?: '—' }} {{ $firstLine->leg2_departure_time }}</div>
+                    @endif
                 </div>
                 <div class="row mb-2">
                     <div class="col-md-2"><strong>Fare:</strong> {{ number_format($firstLine->fare_amount, 2) }}</div>
                     <div class="col-md-2"><strong>Tax:</strong> {{ number_format($firstLine->tax_amount, 2) }}</div>
-                    <div class="col-md-2"><strong>APT %:</strong> {{ number_format($firstLine->apt_percent, 2) }}%</div>
+                    <div class="col-md-2"><strong>APT %:</strong> {{ number_format($firstLine->apt_percent, 2) }}% <small class="text-muted">{{ $firstLine->apt_input_mode === 'amount' ? '(from amount)' : '' }}</small></div>
                     <div class="col-md-2"><strong>APT:</strong> {{ number_format($firstLine->apt_charges, 2) }}</div>
                     <div class="col-md-2"><strong>Comm %:</strong> {{ number_format($firstLine->commission_percent, 2) }}</div>
                     <div class="col-md-2"><strong>Comm Amt:</strong> {{ number_format($firstLine->commission_amount, 2) }}</div>
@@ -128,80 +143,169 @@
                     <div class="col-md-2"><strong>Discount:</strong> {{ number_format($firstLine->discount_amount, 2) }}</div>
                 </div>
                 <div class="row">
-                    <div class="col-md-2"><strong>Sales Agent:</strong> {{ $firstLine->salesAgent->name ?? '—' }}</div>
-                    <div class="col-md-2"><strong>Agent Comm %:</strong> {{ number_format($firstLine->agent_commission_percent, 2) }}%</div>
-                    <div class="col-md-2"><strong>Agent Comm:</strong> {{ number_format($firstLine->agent_commission_amount, 2) }}</div>
-                    <div class="col-md-6 text-end"><strong>Per-Ticket Total:</strong> <span class="fs-5">{{ number_format($firstLine->total_amount, 2) }}</span></div>
+                    <div class="col-md-2"><strong>Airline Discount:</strong> {{ number_format($firstLine->airline_discount_amount, 2) }}</div>
+                    <div class="col-md-2"><strong>Sale Agent(SPO):</strong> {{ $firstLine->salesAgent->name ?? '—' }}</div>
+                    <div class="col-md-2"><strong>Sale Comm %:</strong> {{ number_format($firstLine->agent_commission_percent, 2) }}% <small class="text-muted">(on PSF)</small></div>
+                    <div class="col-md-2"><strong>Sale Comm:</strong> {{ number_format($firstLine->agent_commission_amount, 2) }}</div>
+                    <div class="col-md-2 text-end"><strong>Ticket Total:</strong> <span class="fs-5">{{ number_format($firstLine->total_amount, 2) }}</span></div>
                 </div>
             </div>
         </section>
         @endif
 
         <section class="card mb-3">
-            <header class="card-header"><strong>Tickets</strong> <span class="text-muted small">({{ $invoice->lines->count() }})</span></header>
-            <div class="table-responsive">
-                <table class="table table-sm mb-0 align-middle">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Passenger Name</th>
-                            <th>Passenger Type</th>
-                            <th>Ticket #</th>
-                            <th>Status</th>
-                            <th class="text-end">Amount Receivable</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($invoice->lines as $line)
-                        <tr>
-                            <td>{{ $loop->iteration }}</td>
-                            <td>{{ $line->pax_name }}</td>
-                            <td>{{ ucfirst($line->pax_type) }}</td>
-                            <td>{{ $line->ticket_no ?: '—' }}</td>
-                            <td>
-                                <span class="badge {{ ['active' => 'bg-primary', 'refunded' => 'bg-info', 'voided' => 'bg-secondary'][$line->status] ?? 'bg-secondary' }}">
-                                    {{ ucfirst($line->status) }}
-                                </span>
-                            </td>
-                            <td class="text-end">{{ number_format($line->effectiveReceivable(), 2) }}</td>
-                            <td class="text-end">
-                                @if($line->isActive() && $invoice->isPending())
-                                @can('ticket_invoices.edit')
-                                <button type="button" class="btn btn-sm btn-outline-info" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Refund</button>
-                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Void</button>
-                                @endcan
+            <header class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div><strong>Tickets</strong> <span class="text-muted small">({{ $invoice->lines->count() }})</span></div>
+                @if($canBulkAct && $activeLineCount > 1)
+                <div id="bulk-actions-toolbar" style="display:none;">
+                    <span class="text-muted small"><span id="bulk-selected-count">0</span> selected</span>
+                    <button type="button" class="btn btn-sm btn-outline-info" id="bulk-refund-btn" onclick="ticketInvoiceToggleRow('bulk-refund-panel')">Bulk Refund</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" id="bulk-void-btn" onclick="ticketInvoiceToggleRow('bulk-void-panel')">Bulk Void</button>
+                </div>
+                @endif
+            </header>
+
+            {{--
+                The whole table (and the bulk panels below it) sits inside ONE
+                form so the checked checkboxes post straight through as
+                line_ids[] — no JS needed to collect selections. Bulk Refund
+                and Bulk Void are two different endpoints, so their buttons
+                each override the form's action/method via formaction
+                (standard HTML, works without JS). The single-ticket
+                Refund/Void panels further down the page are deliberately
+                OUTSIDE this form — forms cannot nest in HTML.
+            --}}
+            <form method="POST" id="bulk-ticket-form">
+                @csrf
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead>
+                            <tr>
+                                @if($canBulkAct && $activeLineCount > 1)
+                                <th style="width:2.5rem;"><input type="checkbox" id="select-all-tickets" title="Select all active tickets" @if($activeLineCount === 0) disabled @endif></th>
                                 @endif
-                            </td>
-                        </tr>
-                        @if($line->status === 'refunded' || $line->status === 'voided')
-                        <tr>
-                            <td></td>
-                            <td colspan="6" class="pb-2">
-                                @if($line->status === 'refunded')
-                                <div class="alert alert-info mb-0 py-2">
-                                    Refunded on {{ optional($line->refund_date)->format('d/m/Y') }} (adjustment {{ optional($line->refund_adjustment_date)->format('d/m/Y') }}) —
-                                    Fare {{ number_format($line->refund_fare_amount, 2) }}, Tax {{ number_format($line->refund_tax_amount, 2) }},
-                                    Supplier deduction {{ number_format($line->refund_deduction_supplier, 2) }},
-                                    {{ config('travel.company_name') }} deduction {{ number_format($line->refund_deduction_company, 2) }},
-                                    Returned to customer {{ number_format($line->refund_amount, 2) }},
-                                    Retained profit {{ number_format($line->refund_profit, 2) }}.
-                                </div>
-                                @else
-                                <div class="alert alert-secondary mb-0 py-2">
-                                    Voided on {{ optional($line->void_date)->format('d/m/Y') }} —
-                                    Supplier deduction {{ number_format($line->void_deduction_supplier, 2) }},
-                                    {{ config('travel.company_name') }} deduction {{ number_format($line->void_deduction_company, 2) }},
-                                    Total receivable from customer {{ number_format($line->void_total_deduction, 2) }}.
-                                </div>
+                                <th>#</th>
+                                <th>Passenger Name</th>
+                                <th>Passenger Type</th>
+                                <th>Ticket #</th>
+                                <th>Status</th>
+                                <th class="text-end">Amount Receivable</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($invoice->lines as $line)
+                            <tr>
+                                @if($canBulkAct && $activeLineCount > 1)
+                                <td>
+                                    @if($line->isActive())
+                                    <input type="checkbox" class="bulk-line-checkbox" name="line_ids[]" value="{{ $line->id }}" onchange="updateBulkSelectionUI()">
+                                    @endif
+                                </td>
                                 @endif
-                            </td>
-                        </tr>
-                        @endif
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
+                                <td>{{ $loop->iteration }}</td>
+                                <td>{{ $line->pax_name }}</td>
+                                <td>{{ ucfirst($line->pax_type) }}</td>
+                                <td>{{ $line->ticket_no ?: '—' }}</td>
+                                <td>
+                                    <span class="badge {{ ['active' => 'bg-primary', 'refunded' => 'bg-info', 'voided' => 'bg-secondary'][$line->status] ?? 'bg-secondary' }}">
+                                        {{ ucfirst($line->status) }}
+                                    </span>
+                                </td>
+                                <td class="text-end">{{ number_format($line->effectiveReceivable(), 2) }}</td>
+                                <td class="text-end">
+                                    @if($line->isActive() && $invoice->isPending())
+                                    @can('ticket_invoices.edit')
+                                    <button type="button" class="btn btn-sm btn-outline-info" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Refund</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Void</button>
+                                    @endcan
+                                    @endif
+                                </td>
+                            </tr>
+                            @if($line->status === 'refunded' || $line->status === 'voided')
+                            <tr>
+                                @if($canBulkAct && $activeLineCount > 1)
+                                <td></td>
+                                @endif
+                                <td></td>
+                                <td colspan="6" class="pb-2">
+                                    @if($line->status === 'refunded')
+                                    <div class="alert alert-info mb-0 py-2">
+                                        Refunded on {{ optional($line->refund_date)->format('d/m/Y') }} (adjustment {{ optional($line->refund_adjustment_date)->format('d/m/Y') }}) —
+                                        Fare {{ number_format($line->refund_fare_amount, 2) }}, Tax {{ number_format($line->refund_tax_amount, 2) }},
+                                        Supplier deduction {{ number_format($line->refund_deduction_supplier, 2) }},
+                                        {{ config('travel.company_name') }} deduction {{ number_format($line->refund_deduction_company, 2) }},
+                                        Returned to customer {{ number_format($line->refund_amount, 2) }},
+                                        Retained profit {{ number_format($line->refund_profit, 2) }}.
+                                    </div>
+                                    @else
+                                    <div class="alert alert-secondary mb-0 py-2">
+                                        Voided on {{ optional($line->void_date)->format('d/m/Y') }} —
+                                        Supplier deduction {{ number_format($line->void_deduction_supplier, 2) }},
+                                        {{ config('travel.company_name') }} deduction {{ number_format($line->void_deduction_company, 2) }},
+                                        Total receivable from customer {{ number_format($line->void_total_deduction, 2) }}.
+                                    </div>
+                                    @endif
+                                </td>
+                            </tr>
+                            @endif
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                @if($canBulkAct && $activeLineCount > 1)
+                <div id="bulk-refund-panel" class="card-body border-top" style="display:none;">
+                    <h6>Bulk Refund <span id="bulk-refund-count-label"></span></h6>
+                    <p class="text-muted small mb-2">Every selected ticket is refunded in full (its own fare + tax), with the same supplier/company deduction split applied to each one. Need a different amount for one specific ticket? Use that ticket's own Refund button instead.</p>
+                    <div class="row">
+                        <div class="col-md-3 mb-2">
+                            <label class="form-label">Refund Date <span class="text-danger">*</span></label>
+                            <input type="date" name="refund_date" form="bulk-ticket-form" class="form-control" value="{{ now()->format('Y-m-d') }}" required>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label class="form-label">Refund Adjustment Date</label>
+                            <input type="date" name="refund_adjustment_date" form="bulk-ticket-form" class="form-control">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label class="form-label">Deduction by Supplier <span class="text-muted">(per ticket)</span></label>
+                            <input type="number" step="0.01" min="0" name="refund_deduction_supplier" form="bulk-ticket-form" class="form-control" value="0" required>
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label class="form-label">Deduction by {{ config('travel.company_name') }} <span class="text-muted">(per ticket)</span></label>
+                            <input type="number" step="0.01" min="0" name="refund_deduction_company" form="bulk-ticket-form" class="form-control" value="0" required>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <button type="submit" form="bulk-ticket-form" formaction="{{ route('ticket_invoices.lines.bulk_refund', $invoice->id) }}" class="btn btn-info btn-sm" id="bulk-refund-submit" onclick="return confirmBulkAction('refund');">Confirm Bulk Refund</button>
+                        <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('bulk-refund-panel')">Cancel</button>
+                    </div>
+                </div>
+
+                <div id="bulk-void-panel" class="card-body border-top" style="display:none;">
+                    <h6>Bulk Void <span id="bulk-void-count-label"></span></h6>
+                    @if(!now()->isSameDay($invoice->invoice_date))
+                    <div class="alert alert-warning mb-0">Tickets can only be voided on the same day they were issued ({{ $invoice->invoice_date->format('d/m/Y') }}). Use Refund instead.</div>
+                    @else
+                    <p class="text-muted small mb-2">The same supplier/company deduction split is applied to every selected ticket — all other amounts on each become 0, same as a single Void.</p>
+                    <div class="row">
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Deduction by Supplier <span class="text-muted">(per ticket)</span></label>
+                            <input type="number" step="0.01" min="0" name="void_deduction_supplier" form="bulk-ticket-form" class="form-control" value="0" required>
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label">Deduction by {{ config('travel.company_name') }} <span class="text-muted">(per ticket)</span></label>
+                            <input type="number" step="0.01" min="0" name="void_deduction_company" form="bulk-ticket-form" class="form-control" value="0" required>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <button type="submit" form="bulk-ticket-form" formaction="{{ route('ticket_invoices.lines.bulk_void', $invoice->id) }}" class="btn btn-danger btn-sm" id="bulk-void-submit" onclick="return confirmBulkAction('void');">Confirm Bulk Void</button>
+                        <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('bulk-void-panel')">Cancel</button>
+                    </div>
+                    @endif
+                </div>
+                @endif
+            </form>
         </section>
 
         @foreach($invoice->lines as $line)
@@ -286,6 +390,14 @@
                     <tr><td class="text-end pe-3">Total Discount:</td><td>{{ number_format($invoice->total_discount, 2) }}</td></tr>
                     <tr class="fw-bold"><td class="text-end pe-3">Grand Total (Customer):</td><td>{{ number_format($invoice->total_amount, 2) }}</td></tr>
                 </table>
+                @php($summaryLines = $invoice->lines->where('status', 'active'))
+                <table class="table table-sm w-auto mb-0 ms-4">
+                    <tr><th colspan="2">Summary <small class="text-muted fw-normal">({{ $summaryLines->count() }} active ticket(s))</small></th></tr>
+                    <tr><td class="text-end pe-3">Ticket Total (Customer Net):</td><td>{{ number_format($summaryLines->avg('total_amount') ?? 0, 2) }}</td></tr>
+                    <tr class="fw-bold"><td class="text-end pe-3">Customer Total:</td><td>{{ number_format($summaryLines->sum('total_amount'), 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Supplier Net:</td><td>{{ number_format($summaryLines->count() ? $summaryLines->sum(fn ($l) => $l->supplierNet()) / $summaryLines->count() : 0, 2) }}</td></tr>
+                    <tr class="fw-bold"><td class="text-end pe-3">Supplier Total:</td><td>{{ number_format($summaryLines->sum(fn ($l) => $l->supplierNet()), 2) }}</td></tr>
+                </table>
             </div>
         </section>
     </div>
@@ -303,6 +415,68 @@
             return;
         }
         el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // Bulk Refund/Void selection — keeps the toolbar's "N selected" count,
+    // the Bulk Refund/Bulk Void buttons, and the "select all" checkbox's
+    // tri-state in sync with whichever individual row checkboxes are
+    // ticked. Pure read of the DOM each time, no stored selection state —
+    // so there's nothing to go stale if a row is (re)rendered.
+    function updateBulkSelectionUI() {
+        const boxes = document.querySelectorAll('.bulk-line-checkbox');
+        const checked = document.querySelectorAll('.bulk-line-checkbox:checked');
+        const toolbar = document.getElementById('bulk-actions-toolbar');
+        const countLabel = document.getElementById('bulk-selected-count');
+        if (countLabel) countLabel.textContent = checked.length;
+        if (toolbar) toolbar.style.display = checked.length > 0 ? '' : 'none';
+
+        const refundBtn = document.getElementById('bulk-refund-btn');
+        const voidBtn = document.getElementById('bulk-void-btn');
+        if (refundBtn) refundBtn.disabled = checked.length === 0;
+        if (voidBtn) voidBtn.disabled = checked.length === 0;
+
+        ['bulk-refund-count-label', 'bulk-void-count-label'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = checked.length > 0 ? '(' + checked.length + ' ticket' + (checked.length === 1 ? '' : 's') + ' selected)' : '';
+        });
+
+        const selectAll = document.getElementById('select-all-tickets');
+        if (selectAll) {
+            selectAll.checked = boxes.length > 0 && checked.length === boxes.length;
+            selectAll.indeterminate = checked.length > 0 && checked.length < boxes.length;
+        }
+
+        // Hide a bulk panel left open from a previous selection that's now empty.
+        if (checked.length === 0) {
+            ['bulk-refund-panel', 'bulk-void-panel'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const selectAll = document.getElementById('select-all-tickets');
+        if (selectAll) {
+            selectAll.addEventListener('change', () => {
+                document.querySelectorAll('.bulk-line-checkbox').forEach(cb => { cb.checked = selectAll.checked; });
+                updateBulkSelectionUI();
+            });
+        }
+    });
+
+    // Blocks the submit (same pattern as the single-ticket confirm()
+    // dialogs) if nothing is actually checked — belt-and-suspenders on
+    // top of the server's own "line_ids required" validation, and gives
+    // an immediate, specific message instead of a round-trip error.
+    function confirmBulkAction(kind) {
+        const checked = document.querySelectorAll('.bulk-line-checkbox:checked').length;
+        if (checked === 0) {
+            alert('Select at least one ticket first.');
+            return false;
+        }
+        const verb = kind === 'refund' ? 'Refund' : 'Void';
+        return confirm(verb + ' ' + checked + ' selected ticket(s)? This cannot be undone.');
     }
 </script>
 @endsection
