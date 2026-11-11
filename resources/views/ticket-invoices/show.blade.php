@@ -33,7 +33,9 @@
     // Refund/Void buttons already require: the invoice must still be
     // pending, and the user needs edit permission. Computed once here
     // rather than re-checked per row.
-    $canBulkAct = $invoice->isPending() && (auth()->user()?->can('ticket_invoices.edit') ?? false);
+    // Client fix: posted tickets can be refunded/voided too (that posts its
+    // own reversal + charge vouchers), so only the permission matters now.
+    $canBulkAct = auth()->user()?->can('ticket_invoices.edit') ?? false;
     $activeLineCount = $invoice->lines->where('status', 'active')->count();
 @endphp
 
@@ -125,11 +127,11 @@
                     <div class="col-md-2"><strong>Tax:</strong> {{ number_format($firstLine->tax_amount, 2) }}</div>
                     <div class="col-md-2"><strong>APT %:</strong> {{ number_format($firstLine->apt_percent, 2) }}% <small class="text-muted">{{ $firstLine->apt_input_mode === 'amount' ? '(from amount)' : '' }}</small></div>
                     <div class="col-md-2"><strong>APT:</strong> {{ number_format($firstLine->apt_charges, 2) }}</div>
-                    <div class="col-md-2"><strong>Comm %:</strong> {{ number_format($firstLine->commission_percent, 2) }}</div>
+                    <div class="col-md-2"><strong>Comm %:</strong> {{ number_format($firstLine->commission_percent, 2) }}% <small class="text-muted">{{ $firstLine->commission_input_mode === 'amount' ? '(from amount)' : '' }}</small></div>
                     <div class="col-md-2"><strong>Comm Amt:</strong> {{ number_format($firstLine->commission_amount, 2) }}</div>
                 </div>
                 <div class="row mb-2">
-                    <div class="col-md-2"><strong>WHT % (on comm):</strong> {{ number_format($firstLine->wht_percent, 2) }}%</div>
+                    <div class="col-md-2"><strong>WHT % (on comm):</strong> {{ number_format($firstLine->wht_percent, 2) }}% <small class="text-muted">{{ $firstLine->wht_input_mode === 'amount' ? '(from amount)' : '' }}</small></div>
                     <div class="col-md-2"><strong>WHT:</strong> {{ number_format($firstLine->wht_amount, 2) }}</div>
                     <div class="col-md-2">
                         <strong>PSF %:</strong> {{ number_format($firstLine->psf_percent, 2) }}%
@@ -143,11 +145,10 @@
                     <div class="col-md-2"><strong>Discount:</strong> {{ number_format($firstLine->discount_amount, 2) }}</div>
                 </div>
                 <div class="row">
-                    <div class="col-md-2"><strong>Airline Discount:</strong> {{ number_format($firstLine->airline_discount_amount, 2) }}</div>
                     <div class="col-md-2"><strong>Sale Agent(SPO):</strong> {{ $firstLine->salesAgent->name ?? '—' }}</div>
-                    <div class="col-md-2"><strong>Sale Comm %:</strong> {{ number_format($firstLine->agent_commission_percent, 2) }}% <small class="text-muted">(on PSF)</small></div>
+                    <div class="col-md-2"><strong>Sale Comm %:</strong> {{ number_format($firstLine->agent_commission_percent, 2) }}% <small class="text-muted">(on PSF{{ $firstLine->agent_commission_input_mode === 'amount' ? ', from amount' : '' }})</small></div>
                     <div class="col-md-2"><strong>Sale Comm:</strong> {{ number_format($firstLine->agent_commission_amount, 2) }}</div>
-                    <div class="col-md-2 text-end"><strong>Ticket Total:</strong> <span class="fs-5">{{ number_format($firstLine->total_amount, 2) }}</span></div>
+                    <div class="col-md-4 text-end"><strong>Ticket Total:</strong> <span class="fs-5">{{ number_format($firstLine->total_amount, 2) }}</span></div>
                 </div>
             </div>
         </section>
@@ -175,7 +176,7 @@
                 Refund/Void panels further down the page are deliberately
                 OUTSIDE this form — forms cannot nest in HTML.
             --}}
-            <form method="POST" id="bulk-ticket-form">
+            <form method="POST" id="bulk-ticket-form" data-ajax-form>
                 @csrf
                 <div class="table-responsive">
                     <table class="table table-sm mb-0 align-middle">
@@ -214,7 +215,7 @@
                                 </td>
                                 <td class="text-end">{{ number_format($line->effectiveReceivable(), 2) }}</td>
                                 <td class="text-end">
-                                    @if($line->isActive() && $invoice->isPending())
+                                    @if($line->isActive())
                                     @can('ticket_invoices.edit')
                                     <button type="button" class="btn btn-sm btn-outline-info" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Refund</button>
                                     <button type="button" class="btn btn-sm btn-outline-danger" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Void</button>
@@ -255,8 +256,10 @@
                 </div>
 
                 @if($canBulkAct && $activeLineCount > 1)
+                <div class="ajax-form-errors alert alert-danger py-2 m-2" style="display:none;"></div>
                 <div id="bulk-refund-panel" class="card-body border-top" style="display:none;">
                     <h6>Bulk Refund <span id="bulk-refund-count-label"></span></h6>
+                    @if($invoice->isPosted())<div class="alert alert-info py-2 small mb-2">This invoice is posted — each refund also posts reversal + charge vouchers to the customer and airline ledgers.</div>@endif
                     <p class="text-muted small mb-2">Every selected ticket is refunded in full (its own fare + tax), with the same supplier/company deduction split applied to each one. Need a different amount for one specific ticket? Use that ticket's own Refund button instead.</p>
                     <div class="row">
                         <div class="col-md-3 mb-2">
@@ -277,7 +280,7 @@
                         </div>
                     </div>
                     <div class="mt-2">
-                        <button type="submit" form="bulk-ticket-form" formaction="{{ route('ticket_invoices.lines.bulk_refund', $invoice->id) }}" class="btn btn-info btn-sm" id="bulk-refund-submit" onclick="return confirmBulkAction('refund');">Confirm Bulk Refund</button>
+                        <button type="submit" form="bulk-ticket-form" formaction="{{ route('ticket_invoices.lines.bulk_refund', $invoice->id) }}" class="btn btn-info btn-sm" id="bulk-refund-submit" data-bulk-kind="refund">Confirm Bulk Refund</button>
                         <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('bulk-refund-panel')">Cancel</button>
                     </div>
                 </div>
@@ -299,7 +302,7 @@
                         </div>
                     </div>
                     <div class="mt-2">
-                        <button type="submit" form="bulk-ticket-form" formaction="{{ route('ticket_invoices.lines.bulk_void', $invoice->id) }}" class="btn btn-danger btn-sm" id="bulk-void-submit" onclick="return confirmBulkAction('void');">Confirm Bulk Void</button>
+                        <button type="submit" form="bulk-ticket-form" formaction="{{ route('ticket_invoices.lines.bulk_void', $invoice->id) }}" class="btn btn-danger btn-sm" id="bulk-void-submit" data-bulk-kind="void">Confirm Bulk Void</button>
                         <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('bulk-void-panel')">Cancel</button>
                     </div>
                     @endif
@@ -309,74 +312,141 @@
         </section>
 
         @foreach($invoice->lines as $line)
-        @if($line->isActive() && $invoice->isPending())
+        @if($line->isActive())
         @can('ticket_invoices.edit')
-        <div id="refund-{{ $line->id }}" class="card mb-3 p-3" style="display:none;">
-            <h6>Refund Ticket {{ $line->ticket_no }} — {{ $line->pax_name }}</h6>
-            <form action="{{ route('ticket_invoices.lines.refund', [$invoice->id, $line->id]) }}" method="POST">
+        @php
+            $ticketDetails = [
+                'Passenger' => $line->pax_name . ' (' . ucfirst($line->pax_type) . ')',
+                'Ticket #' => $line->ticket_no ?: '—',
+                'PNR' => $line->pnr ?: '—',
+                'Airline' => $line->airline->name ?? '—',
+                'Supplier' => $line->supplier->name ?? '—',
+                'Sector' => $line->citiesLabel() ?: '—',
+                'Ticket Type' => ucfirst($line->ticket_type ?: 'international') . ' / ' . ($line->trip_type === 'return' ? 'Return' : 'One Way'),
+                'Departure' => trim((optional($line->leg1_departure_date)->format('d/m/Y') ?? '') . ' ' . ($line->leg1_departure_time ?? '')) ?: '—',
+            ];
+            $ticketAmounts = [
+                'Fare' => $line->fare_amount,
+                'Tax' => $line->tax_amount,
+                'APT (' . number_format($line->apt_percent, 2) . '%)' => $line->apt_charges,
+                'PSF (' . number_format($line->psf_percent, 2) . '%)' => $line->psf_amount,
+                'Discount (' . number_format($line->discount_percent, 2) . '%)' => $line->discount_amount,
+                'Commission (' . number_format($line->commission_percent, 2) . '%)' => $line->commission_amount,
+                'WHT (' . number_format($line->wht_percent, 2) . '%)' => $line->wht_amount,
+                'Sale Comm. (' . number_format($line->agent_commission_percent, 2) . '%)' => $line->agent_commission_amount,
+                'Ticket Total' => $line->total_amount,
+            ];
+        @endphp
+        @foreach(['refund', 'void'] as $kind)
+        <div id="{{ $kind }}-{{ $line->id }}" class="card mb-3 p-3 ticket-adjust-panel" style="display:none;"
+             data-total="{{ (float) $line->total_amount }}">
+            <h6 class="mb-2">{{ ucfirst($kind) }} Ticket {{ $line->ticket_no }} — {{ $line->pax_name }}
+                @if($invoice->isPosted())<span class="badge bg-success ms-1">Posted — vouchers will be created</span>@endif
+            </h6>
+
+            <div class="row g-2 small mb-2">
+                @foreach($ticketDetails as $label => $value)
+                <div class="col-md-3"><span class="text-muted">{{ $label }}:</span> <strong>{{ $value }}</strong></div>
+                @endforeach
+            </div>
+            <div class="table-responsive mb-2">
+                <table class="table table-sm table-bordered mb-0 small text-end">
+                    <tr class="table-light">@foreach($ticketAmounts as $label => $v)<th class="text-end">{{ $label }}</th>@endforeach</tr>
+                    <tr>@foreach($ticketAmounts as $label => $v)<td>{{ number_format((float) $v, 2) }}</td>@endforeach</tr>
+                </table>
+            </div>
+
+            @if($kind === 'void' && !now()->isSameDay($invoice->invoice_date))
+            <div class="alert alert-warning mb-0">Tickets can only be voided on the same day they were issued ({{ $invoice->invoice_date->format('d/m/Y') }}). Use Refund instead.</div>
+            @else
+            <form action="{{ route('ticket_invoices.lines.' . $kind, [$invoice->id, $line->id]) }}" method="POST" data-ajax-form
+                  data-confirm="{{ ucfirst($kind) }} this ticket?{{ $invoice->isPosted() ? ' Reversal and charge vouchers will be posted to the ledgers.' : '' }} This cannot be undone.">
                 @csrf
+                <div class="ajax-form-errors alert alert-danger py-2" style="display:none;"></div>
                 <div class="row">
-                    <div class="col-md-3 mb-2">
+                    @if($kind === 'refund')
+                    <div class="col-md-2 mb-2">
                         <label class="form-label">Refund Date <span class="text-danger">*</span></label>
-                        <input type="date" name="refund_date" class="form-control" value="{{ now()->format('Y-m-d') }}" required>
+                        <input type="date" name="refund_date" class="form-control" value="{{ now()->format('Y-m-d') }}">
                     </div>
-                    <div class="col-md-3 mb-2">
-                        <label class="form-label">Refund Adjustment Date</label>
+                    <div class="col-md-2 mb-2">
+                        <label class="form-label">Adjustment Date</label>
                         <input type="date" name="refund_adjustment_date" class="form-control">
                     </div>
                     <div class="col-md-2 mb-2">
-                        <label class="form-label">Fare Amount</label>
-                        <input type="number" step="0.01" min="0" name="refund_fare_amount" class="form-control" value="{{ $line->fare_amount }}" required>
+                        <label class="form-label">Refund Fare</label>
+                        <input type="number" step="any" min="0" name="refund_fare_amount" class="form-control calc-in" value="{{ $line->fare_amount }}">
                     </div>
                     <div class="col-md-2 mb-2">
-                        <label class="form-label">Tax Amount</label>
-                        <input type="number" step="0.01" min="0" name="refund_tax_amount" class="form-control" value="{{ $line->tax_amount }}" required>
+                        <label class="form-label">Refund Tax</label>
+                        <input type="number" step="any" min="0" name="refund_tax_amount" class="form-control calc-in" value="{{ $line->tax_amount }}">
                     </div>
                     <div class="col-md-2 mb-2">
                         <label class="form-label">Deduction by Supplier</label>
-                        <input type="number" step="0.01" min="0" name="refund_deduction_supplier" class="form-control" value="0" required>
+                        <input type="number" step="any" min="0" name="refund_deduction_supplier" class="form-control calc-in" value="0">
                     </div>
                     <div class="col-md-2 mb-2">
                         <label class="form-label">Deduction by {{ config('travel.company_name') }}</label>
-                        <input type="number" step="0.01" min="0" name="refund_deduction_company" class="form-control" value="0" required>
+                        <input type="number" step="any" min="0" name="refund_deduction_company" class="form-control calc-in" value="0">
                     </div>
-                </div>
-                <small class="text-muted">Original fare/tax are pre-filled for reference — adjust for a partial refund. Refund amount and retained profit are calculated automatically.</small>
-                <div class="mt-2">
-                    <button type="submit" class="btn btn-info btn-sm" onclick="return confirm('Refund this ticket? This cannot be undone.');">Confirm Refund</button>
-                    <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Cancel</button>
-                </div>
-            </form>
-        </div>
-
-        <div id="void-{{ $line->id }}" class="card mb-3 p-3" style="display:none;">
-            <h6>Void Ticket {{ $line->ticket_no }} — {{ $line->pax_name }}</h6>
-            @if(!now()->isSameDay($invoice->invoice_date))
-            <div class="alert alert-warning mb-0">Tickets can only be voided on the same day they were issued ({{ $invoice->invoice_date->format('d/m/Y') }}). Use Refund instead.</div>
-            @else
-            <form action="{{ route('ticket_invoices.lines.void', [$invoice->id, $line->id]) }}" method="POST">
-                @csrf
-                <div class="row">
-                    <div class="col-md-4 mb-2">
+                    @else
+                    <div class="col-md-3 mb-2">
                         <label class="form-label">Deduction by Supplier</label>
-                        <input type="number" step="0.01" min="0" name="void_deduction_supplier" class="form-control" value="0" required>
+                        <input type="number" step="any" min="0" name="void_deduction_supplier" class="form-control calc-in" value="0">
                     </div>
-                    <div class="col-md-4 mb-2">
+                    <div class="col-md-3 mb-2">
                         <label class="form-label">Deduction by {{ config('travel.company_name') }}</label>
-                        <input type="number" step="0.01" min="0" name="void_deduction_company" class="form-control" value="0" required>
+                        <input type="number" step="any" min="0" name="void_deduction_company" class="form-control calc-in" value="0">
                     </div>
+                    @endif
                 </div>
-                <small class="text-muted">All other amounts on this ticket become 0 — only the total deduction remains receivable from the customer.</small>
-                <div class="mt-2">
-                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Void this ticket? This cannot be undone.');">Confirm Void</button>
-                    <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Cancel</button>
+                <div class="small mb-2 adjust-preview" data-kind="{{ $kind }}"></div>
+                <div>
+                    <button type="submit" class="btn btn-{{ $kind === 'refund' ? 'info' : 'danger' }} btn-sm">Confirm {{ ucfirst($kind) }}</button>
+                    <button type="button" class="btn btn-default btn-sm" onclick="ticketInvoiceToggleRow('{{ $kind }}-{{ $line->id }}')">Cancel</button>
                 </div>
             </form>
             @endif
         </div>
+        @endforeach
         @endcan
         @endif
         @endforeach
+
+        @php($adjEntries = $invoice->ledgerEntries->sortBy('id'))
+        @if($adjEntries->isNotEmpty())
+        <section class="card mb-3">
+            <header class="card-header"><strong>Ledger Vouchers</strong> <span class="text-muted small">— posting, refund and void entries created by this invoice</span></header>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small align-middle">
+                    <thead>
+                        <tr><th>Voucher #</th><th>Date</th><th>Type</th><th>Debit</th><th>Credit</th><th class="text-end">Amount</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach($adjEntries as $entry)
+                        @php($v = $entry->voucher)
+                        <tr class="{{ $entry->adjustment ? ($entry->adjustment === 'refund' ? 'table-info' : 'table-secondary') : '' }}">
+                            <td>{{ $v->id ?? '—' }}</td>
+                            <td>{{ $v ? \Illuminate\Support\Carbon::parse($v->date)->format('d/m/Y') : '—' }}</td>
+                            <td>
+                                @if($entry->adjustment)
+                                <span class="badge {{ $entry->adjustment === 'refund' ? 'bg-info' : 'bg-secondary' }}">{{ ucfirst($entry->adjustment) }}</span>
+                                {{ str_starts_with($entry->entry_type, 'rev_') ? 'Reversal' : 'Charges' }}
+                                @else
+                                <span class="badge bg-success">Post</span>
+                                @endif
+                            </td>
+                            <td>{{ $v?->debitAccount->name ?? '—' }}</td>
+                            <td>{{ $v?->creditAccount->name ?? '—' }}</td>
+                            <td class="text-end">{{ number_format((float) $entry->amount, 2) }}</td>
+                            <td>{{ $v->description ?? '' }}</td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        @endif
 
         <section class="card">
             <div class="card-body d-flex justify-content-end">
@@ -469,6 +539,81 @@
     // dialogs) if nothing is actually checked — belt-and-suspenders on
     // top of the server's own "line_ids required" validation, and gives
     // an immediate, specific message instead of a round-trip error.
+    // ---- Refund / Void submit via AJAX: errors show inline, no page reload ----
+    (function () {
+        const n = v => parseFloat(v) || 0;
+        const fmt = v => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        // Live preview of what the refund/void will leave on the ticket.
+        function updatePreview(form) {
+            const preview = form.querySelector('.adjust-preview');
+            if (!preview) return;
+            const panel = form.closest('.ticket-adjust-panel');
+            const total = n(panel.dataset.total);
+            const val = name => n((form.querySelector('[name="' + name + '"]') || {}).value);
+            if (preview.dataset.kind === 'refund') {
+                const ded = val('refund_deduction_supplier') + val('refund_deduction_company');
+                const refundAmt = val('refund_fare_amount') + val('refund_tax_amount') - ded;
+                preview.innerHTML = 'Returned to customer: <strong>' + fmt(refundAmt) + '</strong> &nbsp;|&nbsp; Still receivable from customer: <strong>' + fmt(total - refundAmt) + '</strong>';
+            } else {
+                const ded = val('void_deduction_supplier') + val('void_deduction_company');
+                preview.innerHTML = 'Ticket amounts become 0 — receivable from customer: <strong>' + fmt(ded) + '</strong> (was ' + fmt(total) + ')';
+            }
+        }
+
+        function showErrors(form, json, fallback) {
+            const box = form.querySelector('.ajax-form-errors') || form.parentElement.querySelector('.ajax-form-errors');
+            const msgs = [];
+            Object.values((json && json.errors) || {}).forEach(list => (list || []).forEach(m => { if (!msgs.includes(m)) msgs.push(m); }));
+            if (!msgs.length) msgs.push((json && json.message) || fallback || 'Something went wrong.');
+            form.querySelectorAll('.is-invalid').forEach(el => el.classList.remove('is-invalid'));
+            Object.keys((json && json.errors) || {}).forEach(k => {
+                const el = form.querySelector('[name="' + k + '"]') || document.querySelector('[form="' + form.id + '"][name="' + k + '"]');
+                if (el) el.classList.add('is-invalid');
+            });
+            if (!box) { alert(msgs.join('\n')); return; }
+            box.innerHTML = msgs.map(m => '<div></div>').join('');
+            box.querySelectorAll('div').forEach((d, i) => { d.textContent = msgs[i]; });
+            box.style.display = '';
+            box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        document.querySelectorAll('form[data-ajax-form]').forEach(form => {
+            form.setAttribute('novalidate', 'novalidate');
+            form.addEventListener('input', () => updatePreview(form));
+            updatePreview(form);
+
+            form.addEventListener('submit', async e => {
+                e.preventDefault();
+                const submitter = e.submitter;
+                const action = (submitter && submitter.getAttribute('formaction')) || form.action;
+
+                if (submitter && submitter.dataset.bulkKind) {
+                    if (!confirmBulkAction(submitter.dataset.bulkKind)) return;
+                } else if (form.dataset.confirm && !confirm(form.dataset.confirm)) {
+                    return;
+                }
+
+                if (submitter) submitter.disabled = true;
+                try {
+                    const res = await fetch(action, {
+                        method: 'POST',
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: new FormData(form),
+                        credentials: 'same-origin',
+                    });
+                    let json = {};
+                    try { json = await res.json(); } catch (_) {}
+                    if (res.ok && json.redirect) { window.location.href = json.redirect; return; }
+                    showErrors(form, json, res.status === 419 ? 'Session expired — refresh the page.' : null);
+                } catch (err) {
+                    showErrors(form, null, 'Could not reach the server: ' + err.message);
+                }
+                if (submitter) submitter.disabled = false;
+            });
+        });
+    })();
+
     function confirmBulkAction(kind) {
         const checked = document.querySelectorAll('.bulk-line-checkbox:checked').length;
         if (checked === 0) {

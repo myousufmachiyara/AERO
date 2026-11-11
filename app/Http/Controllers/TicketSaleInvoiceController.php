@@ -85,6 +85,9 @@ class TicketSaleInvoiceController extends Controller
         try {
             $preparedLines = $this->prepareAndValidateLines($request->input('lines', []));
         } catch (ValidationException $e) {
+            if ($request->expectsJson()) {
+                throw $e; // 422 JSON — the form shows it inline, no page reload
+            }
             return back()->withInput()->withErrors($e->errors());
         }
 
@@ -107,13 +110,12 @@ class TicketSaleInvoiceController extends Controller
 
             DB::commit();
 
-            return redirect()->route('ticket_invoices.show', $invoice->id)
-                ->with('success', 'Ticket sale invoice created successfully.');
+            return $this->done($request, route('ticket_invoices.show', $invoice->id), 'Ticket sale invoice created successfully.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TicketSaleInvoice] store failed: ' . $e->getMessage());
 
-            return back()->withInput()->with('error', 'Could not create invoice: ' . $e->getMessage());
+            return $this->failed($request, 'Could not create invoice: ' . $e->getMessage(), 500);
         }
     }
 
@@ -123,6 +125,7 @@ class TicketSaleInvoiceController extends Controller
             'customer', 'creator', 'poster',
             'lines' => fn ($q) => $q->orderBy('sort_order'),
             'lines.supplier', 'lines.airline', 'lines.salesAgent',
+            'ledgerEntries.voucher.debitAccount', 'ledgerEntries.voucher.creditAccount',
         ])->findOrFail($id);
 
         return view('ticket-invoices.show', ['invoice' => $invoice]);
@@ -144,7 +147,7 @@ class TicketSaleInvoiceController extends Controller
         $invoice = TicketSaleInvoice::findOrFail($id);
 
         if (!$invoice->isEditable()) {
-            return redirect()->route('ticket_invoices.show', $id)->with('error', 'Posted invoices cannot be edited — unpost it first.');
+            return $this->failed($request, 'Posted invoices cannot be edited — unpost it first.', 422, route('ticket_invoices.show', $id));
         }
 
         $validated = $this->validatedHeader($request);
@@ -153,6 +156,9 @@ class TicketSaleInvoiceController extends Controller
         try {
             $preparedLines = $this->prepareAndValidateLines($request->input('lines', []), $invoice->id);
         } catch (ValidationException $e) {
+            if ($request->expectsJson()) {
+                throw $e;
+            }
             return back()->withInput()->withErrors($e->errors());
         }
 
@@ -171,13 +177,12 @@ class TicketSaleInvoiceController extends Controller
 
             DB::commit();
 
-            return redirect()->route('ticket_invoices.show', $invoice->id)
-                ->with('success', 'Ticket sale invoice updated successfully.');
+            return $this->done($request, route('ticket_invoices.show', $invoice->id), 'Ticket sale invoice updated successfully.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TicketSaleInvoice] update failed: ' . $e->getMessage());
 
-            return back()->withInput()->with('error', 'Could not update invoice: ' . $e->getMessage());
+            return $this->failed($request, 'Could not update invoice: ' . $e->getMessage(), 500);
         }
     }
 
@@ -419,11 +424,10 @@ class TicketSaleInvoiceController extends Controller
         $invoice = TicketSaleInvoice::findOrFail($invoiceId);
         $line = $invoice->lines()->findOrFail($lineId);
 
-        if ($invoice->isPosted()) {
-            return back()->with('error', 'Unpost this invoice before refunding a ticket.');
-        }
+        // Client fix: posted tickets can be refunded too — the refund then
+        // writes its own reversal/charge vouchers (see postLineAdjustment()).
         if (!$line->isActive()) {
-            return back()->with('error', 'Only an active ticket can be refunded.');
+            return $this->failed($request, 'Only an active ticket can be refunded.');
         }
 
         $validated = $request->validate([
@@ -438,16 +442,18 @@ class TicketSaleInvoiceController extends Controller
         DB::beginTransaction();
         try {
             $this->applyRefundToLine($line, $validated);
+            $this->poster->postLineAdjustment($invoice, $line->fresh(), 'refund');
             $invoice->recalculateTotals();
 
             DB::commit();
 
-            return redirect()->route('ticket_invoices.show', $invoice->id)->with('success', "Ticket {$line->ticket_no} refunded.");
+            return $this->done($request, route('ticket_invoices.show', $invoice->id),
+                "Ticket {$line->ticket_no} refunded." . ($invoice->isPosted() ? ' Refund vouchers posted to the ledgers.' : ''));
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TicketSaleInvoice] refund failed: ' . $e->getMessage());
 
-            return back()->with('error', 'Could not refund ticket: ' . $e->getMessage());
+            return $this->failed($request, 'Could not refund ticket: ' . $e->getMessage(), 500);
         }
     }
 
@@ -456,14 +462,11 @@ class TicketSaleInvoiceController extends Controller
         $invoice = TicketSaleInvoice::findOrFail($invoiceId);
         $line = $invoice->lines()->findOrFail($lineId);
 
-        if ($invoice->isPosted()) {
-            return back()->with('error', 'Unpost this invoice before voiding a ticket.');
-        }
         if (!$line->isActive()) {
-            return back()->with('error', 'Only an active ticket can be voided.');
+            return $this->failed($request, 'Only an active ticket can be voided.');
         }
         if (!now()->isSameDay($invoice->invoice_date)) {
-            return back()->with('error', 'Tickets can only be voided on the same day they were issued (invoice date: ' . $invoice->invoice_date->format('d/m/Y') . '). Use Refund instead.');
+            return $this->failed($request, 'Tickets can only be voided on the same day they were issued (invoice date: ' . $invoice->invoice_date->format('d/m/Y') . '). Use Refund instead.');
         }
 
         $validated = $request->validate([
@@ -474,16 +477,18 @@ class TicketSaleInvoiceController extends Controller
         DB::beginTransaction();
         try {
             $this->applyVoidToLine($line, $validated);
+            $this->poster->postLineAdjustment($invoice, $line->fresh(), 'void');
             $invoice->recalculateTotals();
 
             DB::commit();
 
-            return redirect()->route('ticket_invoices.show', $invoice->id)->with('success', "Ticket {$line->ticket_no} voided.");
+            return $this->done($request, route('ticket_invoices.show', $invoice->id),
+                "Ticket {$line->ticket_no} voided." . ($invoice->isPosted() ? ' Void vouchers posted to the ledgers.' : ''));
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TicketSaleInvoice] void failed: ' . $e->getMessage());
 
-            return back()->with('error', 'Could not void ticket: ' . $e->getMessage());
+            return $this->failed($request, 'Could not void ticket: ' . $e->getMessage(), 500);
         }
     }
 
@@ -500,10 +505,6 @@ class TicketSaleInvoiceController extends Controller
     public function bulkRefundLines(Request $request, string $invoiceId)
     {
         $invoice = TicketSaleInvoice::findOrFail($invoiceId);
-
-        if ($invoice->isPosted()) {
-            return back()->with('error', 'Unpost this invoice before refunding tickets.');
-        }
 
         $validated = $request->validate([
             'line_ids' => 'required|array|min:1',
@@ -524,7 +525,7 @@ class TicketSaleInvoiceController extends Controller
             ->get();
 
         if ($lines->isEmpty()) {
-            return back()->with('error', 'None of the selected tickets could be refunded — they may already be refunded/voided. Refresh and try again.');
+            return $this->failed($request, 'None of the selected tickets could be refunded — they may already be refunded/voided. Refresh and try again.');
         }
 
         DB::beginTransaction();
@@ -538,6 +539,7 @@ class TicketSaleInvoiceController extends Controller
                     'refund_deduction_supplier' => $validated['refund_deduction_supplier'],
                     'refund_deduction_company' => $validated['refund_deduction_company'],
                 ]);
+                $this->poster->postLineAdjustment($invoice, $line->fresh(), 'refund');
             }
 
             $invoice->recalculateTotals();
@@ -548,12 +550,12 @@ class TicketSaleInvoiceController extends Controller
             $skipped = count($validated['line_ids']) - $count;
             $msg = $count . ' ticket(s) refunded.' . ($skipped > 0 ? " ({$skipped} selected ticket(s) were skipped — no longer active.)" : '');
 
-            return redirect()->route('ticket_invoices.show', $invoice->id)->with('success', $msg);
+            return $this->done($request, route('ticket_invoices.show', $invoice->id), $msg);
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TicketSaleInvoice] bulk refund failed: ' . $e->getMessage());
 
-            return back()->with('error', 'Could not refund the selected tickets: ' . $e->getMessage());
+            return $this->failed($request, 'Could not refund the selected tickets: ' . $e->getMessage(), 500);
         }
     }
 
@@ -562,11 +564,8 @@ class TicketSaleInvoiceController extends Controller
     {
         $invoice = TicketSaleInvoice::findOrFail($invoiceId);
 
-        if ($invoice->isPosted()) {
-            return back()->with('error', 'Unpost this invoice before voiding tickets.');
-        }
         if (!now()->isSameDay($invoice->invoice_date)) {
-            return back()->with('error', 'Tickets can only be voided on the same day they were issued (invoice date: ' . $invoice->invoice_date->format('d/m/Y') . '). Use Refund instead.');
+            return $this->failed($request, 'Tickets can only be voided on the same day they were issued (invoice date: ' . $invoice->invoice_date->format('d/m/Y') . '). Use Refund instead.');
         }
 
         $validated = $request->validate([
@@ -582,7 +581,7 @@ class TicketSaleInvoiceController extends Controller
             ->get();
 
         if ($lines->isEmpty()) {
-            return back()->with('error', 'None of the selected tickets could be voided — they may already be refunded/voided. Refresh and try again.');
+            return $this->failed($request, 'None of the selected tickets could be voided — they may already be refunded/voided. Refresh and try again.');
         }
 
         DB::beginTransaction();
@@ -592,6 +591,7 @@ class TicketSaleInvoiceController extends Controller
                     'void_deduction_supplier' => $validated['void_deduction_supplier'],
                     'void_deduction_company' => $validated['void_deduction_company'],
                 ]);
+                $this->poster->postLineAdjustment($invoice, $line->fresh(), 'void');
             }
 
             $invoice->recalculateTotals();
@@ -602,12 +602,12 @@ class TicketSaleInvoiceController extends Controller
             $skipped = count($validated['line_ids']) - $count;
             $msg = $count . ' ticket(s) voided.' . ($skipped > 0 ? " ({$skipped} selected ticket(s) were skipped — no longer active.)" : '');
 
-            return redirect()->route('ticket_invoices.show', $invoice->id)->with('success', $msg);
+            return $this->done($request, route('ticket_invoices.show', $invoice->id), $msg);
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TicketSaleInvoice] bulk void failed: ' . $e->getMessage());
 
-            return back()->with('error', 'Could not void the selected tickets: ' . $e->getMessage());
+            return $this->failed($request, 'Could not void the selected tickets: ' . $e->getMessage(), 500);
         }
     }
 
@@ -744,7 +744,11 @@ class TicketSaleInvoiceController extends Controller
                 'apt_charges' => $l['apt_charges'] ?? 0,
                 'apt_input_mode' => $l['apt_input_mode'] ?? TicketSaleInvoiceLine::INPUT_MODE_PERCENT,
                 'commission_percent' => $l['commission_percent'] ?? 0,
+                'commission_amount' => $l['commission_amount'] ?? 0,
+                'commission_input_mode' => $l['commission_input_mode'] ?? TicketSaleInvoiceLine::INPUT_MODE_PERCENT,
                 'wht_percent' => $l['wht_percent'] ?? 0,
+                'wht_amount' => $l['wht_amount'] ?? 0,
+                'wht_input_mode' => $l['wht_input_mode'] ?? TicketSaleInvoiceLine::INPUT_MODE_PERCENT,
                 'psf_percent' => $l['psf_percent'] ?? 0,
                 'psf_amount' => $l['psf_amount'] ?? 0,
                 'psf_basis' => $l['psf_basis'] ?? TicketSaleInvoiceLine::PSF_BASIS_FARE,
@@ -752,9 +756,11 @@ class TicketSaleInvoiceController extends Controller
                 'discount_percent' => $l['discount_percent'] ?? 0,
                 'discount_amount' => $l['discount_amount'] ?? 0,
                 'discount_input_mode' => $l['discount_input_mode'] ?? TicketSaleInvoiceLine::INPUT_MODE_PERCENT,
-                'airline_discount_amount' => $l['airline_discount_amount'] ?? 0,
+                'airline_discount_amount' => 0, // field removed (client fix)
                 'sales_agent_id' => $l['sales_agent_id'] ?? null,
                 'agent_commission_percent' => $l['agent_commission_percent'] ?? 0,
+                'agent_commission_amount' => $l['agent_commission_amount'] ?? 0,
+                'agent_commission_input_mode' => $l['agent_commission_input_mode'] ?? TicketSaleInvoiceLine::INPUT_MODE_PERCENT,
                 'sort_order' => $i,
                 'updated_by' => auth()->id(),
             ];
@@ -866,9 +872,9 @@ class TicketSaleInvoiceController extends Controller
             'lines.*.trip_type' => 'nullable|in:one_way,return',
             'lines.*.ticket_type' => ['nullable', Rule::in(TicketSaleInvoiceLine::TICKET_TYPES)],
             'lines.*.leg1_departure_date' => 'nullable|date',
-            'lines.*.leg1_departure_time' => 'nullable|date_format:H:i',
+            'lines.*.leg1_departure_time' => ['nullable', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'lines.*.leg2_departure_date' => 'nullable|date',
-            'lines.*.leg2_departure_time' => 'nullable|date_format:H:i',
+            'lines.*.leg2_departure_time' => ['nullable', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'lines.*.leg1_from' => 'nullable|string|max:100',
             'lines.*.leg1_stay' => 'nullable|string|max:255',
             'lines.*.leg1_to' => 'nullable|string|max:100',
@@ -877,13 +883,19 @@ class TicketSaleInvoiceController extends Controller
             'lines.*.leg2_to' => 'nullable|string|max:100',
             'lines.*.fare_amount' => 'nullable|numeric|min:0',
             'lines.*.tax_amount' => 'nullable|numeric|min:0',
-            'lines.*.apt_percent' => 'nullable|numeric|min:0|max:100',
+            // Percent caps are deliberately generous: in "amount" mode the
+            // percent is DERIVED (e.g. APT amount larger than the fare), and
+            // a hard max:100 used to reject such a form with no visible error.
+            'lines.*.apt_percent' => 'nullable|numeric|min:0|max:9999',
             'lines.*.apt_charges' => 'nullable|numeric|min:0',
             'lines.*.apt_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
-            'lines.*.airline_discount_amount' => 'nullable|numeric|min:0',
             'lines.*.commission_percent' => 'nullable|numeric|min:0|max:100',
+            'lines.*.commission_amount' => 'nullable|numeric|min:0',
+            'lines.*.commission_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
             'lines.*.wht_percent' => 'nullable|numeric|min:0|max:100',
-            'lines.*.psf_percent' => 'nullable|numeric|min:0|max:100',
+            'lines.*.wht_amount' => 'nullable|numeric|min:0',
+            'lines.*.wht_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+            'lines.*.psf_percent' => 'nullable|numeric|min:0|max:9999',
             'lines.*.psf_amount' => 'nullable|numeric|min:0',
             'lines.*.psf_basis' => ['nullable', Rule::in(TicketSaleInvoiceLine::PSF_BASES)],
             'lines.*.psf_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
@@ -892,7 +904,62 @@ class TicketSaleInvoiceController extends Controller
             'lines.*.discount_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
             'lines.*.sales_agent_id' => 'nullable|exists:users,id',
             'lines.*.agent_commission_percent' => 'nullable|numeric|min:0|max:100',
-        ]);
+            'lines.*.agent_commission_amount' => 'nullable|numeric|min:0',
+            'lines.*.agent_commission_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+        ], [], $this->lineAttributeNames($request));
+    }
+
+    /**
+     * Human labels for validation messages ("Ticket row 2 PSF %" instead of
+     * "lines.1.psf_percent"), since errors are now shown inline on the form.
+     */
+    protected function lineAttributeNames(Request $request): array
+    {
+        $labels = [
+            'pax_name' => 'Passenger Name', 'pax_type' => 'Passenger Type', 'ticket_no' => 'Ticket #',
+            'supplier_id' => 'Supplier', 'airline_id' => 'Airline', 'pnr' => 'PNR',
+            'fare_amount' => 'Fare Amount', 'tax_amount' => 'Tax Amount',
+            'apt_percent' => 'APT %', 'apt_charges' => 'APT Amount',
+            'commission_percent' => 'Commission %', 'commission_amount' => 'Commission Amount',
+            'wht_percent' => 'WHT %', 'wht_amount' => 'WHT Amount',
+            'psf_percent' => 'PSF %', 'psf_amount' => 'PSF Amount',
+            'discount_percent' => 'Discount %', 'discount_amount' => 'Discount Amount',
+            'sales_agent_id' => 'Sale Agent', 'agent_commission_percent' => 'Sale Commission %',
+            'agent_commission_amount' => 'Sale Commission Amount',
+            'leg1_departure_date' => 'Departure Date', 'leg1_departure_time' => 'Departure Time',
+            'leg2_departure_date' => 'Return Departure Date', 'leg2_departure_time' => 'Return Departure Time',
+        ];
+
+        $names = [];
+        foreach (array_keys((array) $request->input('lines', [])) as $i) {
+            foreach ($labels as $field => $label) {
+                $names["lines.$i.$field"] = 'Ticket row ' . ((int) $i + 1) . ' ' . $label;
+            }
+        }
+
+        return $names;
+    }
+
+    /** Success response: JSON {redirect} for the AJAX form, normal redirect otherwise. */
+    protected function done(Request $request, string $url, string $message)
+    {
+        if ($request->expectsJson()) {
+            session()->flash('success', $message);
+
+            return response()->json(['message' => $message, 'redirect' => $url]);
+        }
+
+        return redirect()->to($url)->with('success', $message);
+    }
+
+    /** Error response that never reloads the page for an AJAX submit. */
+    protected function failed(Request $request, string $message, int $status = 422, ?string $redirect = null)
+    {
+        if ($request->expectsJson()) {
+            return response()->json(['message' => $message, 'errors' => ['_' => [$message]]], $status);
+        }
+
+        return ($redirect ? redirect()->to($redirect) : back()->withInput())->with('error', $message);
     }
 
     protected function validatedHeader(Request $request): array
@@ -903,7 +970,7 @@ class TicketSaleInvoiceController extends Controller
             'customer_id' => 'required|exists:customers,id',
             'quotation_id' => 'nullable|exists:quotations,id',
             'remarks' => 'nullable|string|max:2000',
-        ]);
+        ], [], ['customer_id' => 'Customer', 'invoice_date' => 'Date', 'adjustment_date' => 'Adjustment Date']);
     }
 
     protected function nextNumber(): string

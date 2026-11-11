@@ -164,6 +164,8 @@ Route::middleware(['auth'])->group(function () {
         Route::patch('/{id}/unpost', [TicketSaleInvoiceController::class, 'unpost'])->middleware('check.permission:ticket_invoices.edit')->name('unpost');
         Route::post('/{invoice}/lines/{line}/refund', [TicketSaleInvoiceController::class, 'refundLine'])->middleware('check.permission:ticket_invoices.edit')->name('lines.refund');
         Route::post('/{invoice}/lines/{line}/void', [TicketSaleInvoiceController::class, 'voidLine'])->middleware('check.permission:ticket_invoices.edit')->name('lines.void');
+        Route::post('/{invoice}/lines/bulk-refund', [TicketSaleInvoiceController::class, 'bulkRefundLines'])->middleware('check.permission:ticket_invoices.edit')->name('lines.bulk_refund');
+        Route::post('/{invoice}/lines/bulk-void', [TicketSaleInvoiceController::class, 'bulkVoidLines'])->middleware('check.permission:ticket_invoices.edit')->name('lines.bulk_void');
     });
 
     // Self-scoped — always shows only the logged-in agent's own commission, so no permission gate.

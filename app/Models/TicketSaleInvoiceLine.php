@@ -14,11 +14,11 @@ class TicketSaleInvoiceLine extends Model
         'leg2_from', 'leg2_stay', 'leg2_to',
         'leg2_departure_date', 'leg2_departure_time',
         'fare_amount', 'tax_amount', 'apt_charges', 'apt_percent', 'apt_input_mode', 'commission_percent',
-        'commission_amount', 'wht_amount', 'wht_percent',
+        'commission_amount', 'commission_input_mode', 'wht_amount', 'wht_percent', 'wht_input_mode',
         'psf_amount', 'psf_percent', 'psf_basis', 'psf_input_mode',
         'discount_amount', 'discount_percent', 'discount_input_mode', 'airline_discount_amount',
         'total_amount', 'sales_agent_id', 'agent_commission_amount', 'agent_commission_percent',
-        'status',
+        'agent_commission_input_mode', 'status',
         'refund_date', 'refund_adjustment_date', 'refund_fare_amount',
         'refund_tax_amount', 'refund_charges', 'refund_deduction_supplier', 'refund_deduction_company',
         'refund_amount', 'refund_profit',
@@ -213,38 +213,27 @@ class TicketSaleInvoiceLine extends Model
         $fare = (float) $this->fare_amount;
         $tax = (float) $this->tax_amount;
 
-        // APT is an "enter % or amount" pair, same as PSF/Discount (basis:
-        // fare). apt_input_mode says which side was typed in.
-        if ($this->apt_input_mode === self::INPUT_MODE_AMOUNT) {
-            $this->apt_percent = $fare > 0
-                ? round(((float) $this->apt_charges) / $fare * 100, 2)
-                : 0.0;
-        } else {
-            $this->apt_charges = round($fare * ((float) $this->apt_percent) / 100, 2);
-        }
+        // Every %/amount pair below is two-way: *_input_mode says which side
+        // was typed in, that side is kept exactly, the other is derived.
+        [$this->apt_percent, $this->apt_charges] =
+            self::resolvePair($this->apt_input_mode, $fare, $this->apt_percent, $this->apt_charges);
 
         $psfBasisAmount = $this->psf_basis === self::PSF_BASIS_TOTAL
             ? round($fare + $tax + ((float) $this->apt_charges), 2)
             : $fare;
 
-        if ($this->psf_input_mode === self::INPUT_MODE_AMOUNT) {
-            $this->psf_percent = $psfBasisAmount > 0
-                ? round(((float) $this->psf_amount) / $psfBasisAmount * 100, 2)
-                : 0.0;
-        } else {
-            $this->psf_amount = round($psfBasisAmount * ((float) $this->psf_percent) / 100, 2);
-        }
+        [$this->psf_percent, $this->psf_amount] =
+            self::resolvePair($this->psf_input_mode, $psfBasisAmount, $this->psf_percent, $this->psf_amount);
 
-        if ($this->discount_input_mode === self::INPUT_MODE_AMOUNT) {
-            $this->discount_percent = $fare > 0
-                ? round(((float) $this->discount_amount) / $fare * 100, 2)
-                : 0.0;
-        } else {
-            $this->discount_amount = round($fare * ((float) $this->discount_percent) / 100, 2);
-        }
+        [$this->discount_percent, $this->discount_amount] =
+            self::resolvePair($this->discount_input_mode, $fare, $this->discount_percent, $this->discount_amount);
 
-        $this->commission_amount = round($fare * ((float) $this->commission_percent) / 100, 2);
-        $this->wht_amount = round(((float) $this->commission_amount) * ((float) $this->wht_percent) / 100, 2);
+        // Airline commission: % of fare. WHT: % of that commission.
+        [$this->commission_percent, $this->commission_amount] =
+            self::resolvePair($this->commission_input_mode, $fare, $this->commission_percent, $this->commission_amount);
+
+        [$this->wht_percent, $this->wht_amount] =
+            self::resolvePair($this->wht_input_mode, (float) $this->commission_amount, $this->wht_percent, $this->wht_amount);
 
         $this->total_amount = round(
             $fare
@@ -257,12 +246,37 @@ class TicketSaleInvoiceLine extends Model
 
         // Sale (agent/SPO) commission is a % of the PSF amount — not of the
         // ticket total — per client feedback.
-        $this->agent_commission_amount = round(((float) $this->psf_amount) * ((float) $this->agent_commission_percent) / 100, 2);
+        [$this->agent_commission_percent, $this->agent_commission_amount] =
+            self::resolvePair($this->agent_commission_input_mode, (float) $this->psf_amount, $this->agent_commission_percent, $this->agent_commission_amount);
+
+        // Airline discount was removed from the form (client fix) — never carry a stale value.
+        $this->airline_discount_amount = 0;
+    }
+
+    /**
+     * Resolve one two-way percent/amount pair against its basis.
+     *   mode = amount  → amount kept, percent = amount / basis * 100
+     *   otherwise      → percent kept, amount = basis * percent / 100
+     *
+     * @return array{0: float, 1: float} [percent, amount]
+     */
+    public static function resolvePair(?string $mode, float $basis, $percent, $amount): array
+    {
+        if ($mode === self::INPUT_MODE_AMOUNT) {
+            $amount = round((float) $amount, 2);
+
+            return [$basis > 0 ? round($amount / $basis * 100, 2) : 0.0, $amount];
+        }
+
+        $percent = round((float) $percent, 2);
+
+        return [$percent, round($basis * $percent / 100, 2)];
     }
 
     /**
      * Supplier Net per ticket (Summary section):
-     *   Fare + Tax + APT − Commission + WHT − Discount given by the airline.
+     *   Fare + Tax + APT − Commission + WHT.
+     * (Airline discount was removed per client fix.)
      * Supplier Total = this × number of tickets. Display figure only —
      * ledger posting still uses effectiveAirlinePayable().
      */
@@ -273,8 +287,7 @@ class TicketSaleInvoiceLine extends Model
             + ((float) $this->tax_amount)
             + ((float) $this->apt_charges)
             - ((float) $this->commission_amount)
-            + ((float) $this->wht_amount)
-            - ((float) $this->airline_discount_amount),
+            + ((float) $this->wht_amount),
             2
         );
     }

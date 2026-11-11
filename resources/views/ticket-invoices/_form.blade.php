@@ -5,6 +5,9 @@
     $lockedLines = $invoice ? $invoice->lines->where('status', '!=', 'active')->values() : collect();
 @endphp
 
+<div id="ticket-form-errors" class="alert alert-danger" style="display:none;" role="alert"></div>
+@if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
+
 {{--
     Master/Grid layout per client feedback: this invoice is almost always
     one group of passengers travelling together on the same sector, same
@@ -17,7 +20,7 @@
 <div class="row mb-3">
     <div class="col-md-3 mb-2">
         <label class="form-label">Date <span class="text-danger">*</span></label>
-        <input type="date" name="invoice_date" class="form-control" required
+        <input type="date" name="invoice_date" class="form-control"
                value="{{ old('invoice_date', $invoice?->invoice_date?->format('Y-m-d') ?? now()->format('Y-m-d')) }}">
     </div>
     <div class="col-md-3 mb-2">
@@ -28,7 +31,7 @@
     </div>
     <div class="col-md-3 mb-2">
         <label class="form-label">Customer <span class="text-danger">*</span></label>
-        <select name="customer_id" class="form-control" required>
+        <select name="customer_id" class="form-control ti-select2" id="customer-select">
             <option value="">Select customer...</option>
             @foreach($customers as $c)
             <option value="{{ $c->id }}" @selected(old('customer_id', $invoice?->customer_id ?? $quotation?->customer_id ?? null) == $c->id)>{{ $c->name }}</option>
@@ -60,12 +63,12 @@
         <div class="row">
             <div class="col-md-3 mb-2">
                 <label class="form-label">Supplier</label>
-                <select class="form-control" id="m-supplier"><option value="">— none —</option></select>
+                <select class="form-control ti-select2" id="m-supplier"><option value="">— none —</option></select>
             </div>
             <div class="col-md-3 mb-2">
                 <label class="form-label">Airline</label>
-                <select class="form-control" id="m-airline"><option value="">— auto from first ticket # —</option></select>
-                <small class="text-muted" id="m-airline-hint"></small>
+                <select class="form-control ti-select2" id="m-airline"><option value="">— auto from first ticket # —</option></select>
+                <small class="text-muted d-block" id="m-airline-hint" style="min-height:1.3em;"></small>
             </div>
             <div class="col-md-3 mb-2">
                 <label class="form-label">PNR</label>
@@ -115,86 +118,98 @@
                 </div>
             </div>
         </div>
+        {{-- Every %/Amount pair is TWO separate inputs (client fix): type in
+             either one and the other is calculated; the side you typed last
+             is kept exact (its hidden *-mode input records which). --}}
         <div class="row">
             <div class="col-md-2 mb-2">
                 <label class="form-label">Fare Amount</label>
-                <input type="number" step="0.01" min="0" class="form-control" id="m-fare" value="0">
+                <input type="number" step="any" min="0" class="form-control" id="m-fare" value="0">
             </div>
             <div class="col-md-2 mb-2">
                 <label class="form-label">Tax Amount</label>
-                <input type="number" step="0.01" min="0" class="form-control" id="m-tax" value="0">
+                <input type="number" step="any" min="0" class="form-control" id="m-tax" value="0">
             </div>
-            <div class="col-md-2 mb-2">
-                <label class="form-label d-flex justify-content-between align-items-center mb-1">
-                    <span>APT</span>
-                    <select class="form-control form-control-sm" id="m-apt-mode" style="width:auto;padding:0 4px;">
-                        <option value="percent">Enter %</option>
-                        <option value="amount">Enter Amount</option>
+            <div class="col-md-4 mb-2 pair" data-pair="apt">
+                <label class="form-label">APT <small class="text-muted">(on fare)</small></label>
+                <div class="input-group">
+                    <input type="number" step="any" min="0" class="form-control pair-pct" id="m-apt-pct" value="0" aria-label="APT %">
+                    <span class="input-group-text">%</span>
+                    <input type="number" step="any" min="0" class="form-control pair-amt" id="m-apt-amt" value="0" aria-label="APT Amount">
+                    <span class="input-group-text">Amt</span>
+                </div>
+                <input type="hidden" id="m-apt-mode" value="percent">
+            </div>
+            <div class="col-md-4 mb-2 pair" data-pair="commission">
+                <label class="form-label">Commission <small class="text-muted">(on fare, from airline)</small></label>
+                <div class="input-group">
+                    <input type="number" step="any" min="0" class="form-control pair-pct" id="m-commission-pct" value="0" aria-label="Commission %">
+                    <span class="input-group-text">%</span>
+                    <input type="number" step="any" min="0" class="form-control pair-amt" id="m-commission-amt" value="0" aria-label="Commission Amount">
+                    <span class="input-group-text">Amt</span>
+                </div>
+                <input type="hidden" id="m-commission-mode" value="percent">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-4 mb-2 pair" data-pair="wht">
+                <label class="form-label">WHT <small class="text-muted">(on commission)</small></label>
+                <div class="input-group">
+                    <input type="number" step="any" min="0" class="form-control pair-pct" id="m-wht-pct" value="0" aria-label="WHT %">
+                    <span class="input-group-text">%</span>
+                    <input type="number" step="any" min="0" class="form-control pair-amt" id="m-wht-amt" value="0" aria-label="WHT Amount">
+                    <span class="input-group-text">Amt</span>
+                </div>
+                <input type="hidden" id="m-wht-mode" value="percent">
+            </div>
+            <div class="col-md-4 mb-2 pair" data-pair="psf">
+                <label class="form-label d-flex justify-content-between align-items-center">
+                    <span>PSF</span>
+                    <select class="form-control form-control-sm w-auto py-0" id="m-psf-basis">
+                        <option value="fare">on Fare Amount</option>
+                        <option value="total">on Fare + Tax + APT</option>
                     </select>
                 </label>
-                <input type="number" step="0.01" min="0" max="100" class="form-control" id="m-apt-pct" placeholder="APT %" value="0">
-                <input type="number" step="0.01" min="0" class="form-control" id="m-apt-amt-input" placeholder="APT Amount" value="0" style="display:none;">
-                <small class="text-muted">= <span class="text-danger" id="m-apt-amt">0.00</span></small>
+                <div class="input-group">
+                    <input type="number" step="any" min="0" class="form-control pair-pct" id="m-psf-pct" value="0" aria-label="PSF %">
+                    <span class="input-group-text">%</span>
+                    <input type="number" step="any" min="0" class="form-control pair-amt" id="m-psf-amt" value="0" aria-label="PSF Amount">
+                    <span class="input-group-text">Amt</span>
+                </div>
+                <input type="hidden" id="m-psf-mode" value="percent">
             </div>
-            <div class="col-md-2 mb-2">
-                <label class="form-label">Commission % (on fare)</label>
-                <input type="number" step="0.01" min="0" max="100" class="form-control" id="m-commission-pct" value="0">
-                <small class="text-muted">= <span class="text-danger" id="m-commission-amt">0.00</span> (from airline)</small>
-            </div>
-            <div class="col-md-2 mb-2">
-                <label class="form-label">WHT % (on commission)</label>
-                <input type="number" step="0.01" min="0" max="100" class="form-control" id="m-wht-pct" value="0">
-                <small class="text-muted">= <span class="text-danger" id="m-wht-amt">0.00</span></small>
-            </div>
-            <div class="col-md-2 mb-2">
-                <label class="form-label">Sale Agent(SPO)</label>
-                <select class="form-control" id="m-agent"><option value="">— none —</option></select>
+            <div class="col-md-4 mb-2 pair" data-pair="discount">
+                <label class="form-label">Discount <small class="text-muted">(aero adventure, on fare)</small></label>
+                <div class="input-group">
+                    <input type="number" step="any" min="0" class="form-control pair-pct" id="m-discount-pct" value="0" aria-label="Discount %">
+                    <span class="input-group-text">%</span>
+                    <input type="number" step="any" min="0" class="form-control pair-amt" id="m-discount-amt" value="0" aria-label="Discount Amount">
+                    <span class="input-group-text">Amt</span>
+                </div>
+                <input type="hidden" id="m-discount-mode" value="percent">
             </div>
         </div>
         <div class="row">
             <div class="col-md-3 mb-2">
-                <label class="form-label d-flex justify-content-between align-items-center mb-1">
-                    <span>PSF</span>
-                    <select class="form-control form-control-sm" id="m-psf-mode" style="width:auto;padding:0 4px;">
-                        <option value="percent">Enter %</option>
-                        <option value="amount">Enter Amount</option>
-                    </select>
-                </label>
-                <input type="number" step="0.01" min="0" max="100" class="form-control" id="m-psf-pct" placeholder="PSF %" value="0">
-                <input type="number" step="0.01" min="0" class="form-control mt-1" id="m-psf-amt-input" placeholder="PSF Amount" value="0" style="display:none;">
-                <select class="form-control form-control-sm mt-1" id="m-psf-basis">
-                    <option value="fare">Based on Fare Amount</option>
-                    <option value="total">Based on Fare + Tax + APT</option>
-                </select>
-                <small class="text-muted">= <span class="text-danger" id="m-psf-computed">0.00</span></small>
+                <label class="form-label">Sale Agent (SPO)</label>
+                <select class="form-control ti-select2" id="m-agent"><option value="">— none —</option></select>
             </div>
-            <div class="col-md-3 mb-2">
-                <label class="form-label d-flex justify-content-between align-items-center mb-1">
-                    <span>Discount <small class="text-muted">(aero adventure)</small></span>
-                    <select class="form-control form-control-sm" id="m-discount-mode" style="width:auto;padding:0 4px;">
-                        <option value="percent">Enter %</option>
-                        <option value="amount">Enter Amount</option>
-                    </select>
-                </label>
-                <input type="number" step="0.01" min="0" max="100" class="form-control" id="m-discount-pct" placeholder="Discount %" value="0">
-                <input type="number" step="0.01" min="0" class="form-control mt-1" id="m-discount-amt" placeholder="Discount Amount" value="0" style="display:none;">
-                <small class="text-muted">(on Fare Amount) = <span class="text-danger" id="m-discount-computed">0.00</span></small>
-            </div>
-            <div class="col-md-2 mb-2">
-                <label class="form-label">Airline Discount</label>
-                <input type="number" step="0.01" min="0" class="form-control" id="m-airline-discount" value="0">
-                <small class="text-muted">given by airline — reduces Supplier Net</small>
-            </div>
-            <div class="col-md-2 mb-2">
-                <label class="form-label">Sale Commission %</label>
-                <input type="number" step="0.01" min="0" max="100" class="form-control" id="m-agent-commission-pct" value="0">
-                <small class="text-muted">= <span class="text-danger" id="m-agent-commission-amt">0.00</span> (on PSF amount)</small>
+            <div class="col-md-4 mb-2 pair" data-pair="agent_commission">
+                <label class="form-label">Sale Commission <small class="text-muted">(on PSF amount)</small></label>
+                <div class="input-group">
+                    <input type="number" step="any" min="0" class="form-control pair-pct" id="m-agent_commission-pct" value="0" aria-label="Sale Commission %">
+                    <span class="input-group-text">%</span>
+                    <input type="number" step="any" min="0" class="form-control pair-amt" id="m-agent_commission-amt" value="0" aria-label="Sale Commission Amount">
+                    <span class="input-group-text">Amt</span>
+                </div>
+                <input type="hidden" id="m-agent_commission-mode" value="percent">
             </div>
             <div class="col-md-2 mb-2 ms-auto text-end">
                 <label class="form-label d-block">Ticket Total</label>
                 <h5 class="mb-0" id="m-total-amount">0.00</h5>
             </div>
         </div>
+        <small class="text-muted">Type either the % or the amount — the other is calculated. The calculated side is shaded.</small>
     </div>
 </section>
 
@@ -240,7 +255,7 @@
                 </table>
             </div>
         </div>
-        <small class="text-muted d-block">Supplier Net = Fare + Tax + APT − Commission + WHT − Airline Discount. Ticket Total (Customer Net) = Fare + Tax + APT + PSF − Discount.</small>
+        <small class="text-muted d-block">Supplier Net = Fare + Tax + APT − Commission + WHT. Ticket Total (Customer Net) = Fare + Tax + APT + PSF − Discount.</small>
     </div>
 </section>
 
@@ -260,20 +275,28 @@
             'ticket_no' => $l->ticket_no,
             'trip_type' => $l->trip_type, 'ticket_type' => $l->ticket_type,
             'leg1_from' => $l->leg1_from, 'leg1_stay' => $l->leg1_stay, 'leg1_to' => $l->leg1_to,
-            'leg1_departure_date' => optional($l->leg1_departure_date)->format('Y-m-d'), 'leg1_departure_time' => $l->leg1_departure_time,
+            'leg1_departure_date' => optional($l->leg1_departure_date)->format('Y-m-d'), 'leg1_departure_time' => $l->leg1_departure_time ? substr($l->leg1_departure_time, 0, 5) : null,
             'leg2_from' => $l->leg2_from, 'leg2_stay' => $l->leg2_stay, 'leg2_to' => $l->leg2_to,
-            'leg2_departure_date' => optional($l->leg2_departure_date)->format('Y-m-d'), 'leg2_departure_time' => $l->leg2_departure_time,
+            'leg2_departure_date' => optional($l->leg2_departure_date)->format('Y-m-d'), 'leg2_departure_time' => $l->leg2_departure_time ? substr($l->leg2_departure_time, 0, 5) : null,
             'fare_amount' => $l->fare_amount, 'tax_amount' => $l->tax_amount, 'apt_percent' => $l->apt_percent,
             'apt_charges' => $l->apt_charges, 'apt_input_mode' => $l->apt_input_mode,
-            'airline_discount_amount' => $l->airline_discount_amount,
-            'commission_percent' => $l->commission_percent, 'wht_percent' => $l->wht_percent,
+            'commission_percent' => $l->commission_percent, 'commission_amount' => $l->commission_amount,
+            'commission_input_mode' => $l->commission_input_mode,
+            'wht_percent' => $l->wht_percent, 'wht_amount' => $l->wht_amount, 'wht_input_mode' => $l->wht_input_mode,
             'psf_percent' => $l->psf_percent, 'psf_amount' => $l->psf_amount, 'psf_basis' => $l->psf_basis,
             'psf_input_mode' => $l->psf_input_mode,
             'discount_percent' => $l->discount_percent, 'discount_amount' => $l->discount_amount,
             'discount_input_mode' => $l->discount_input_mode,
             'sales_agent_id' => $l->sales_agent_id, 'agent_commission_percent' => $l->agent_commission_percent,
+            'agent_commission_amount' => $l->agent_commission_amount,
+            'agent_commission_input_mode' => $l->agent_commission_input_mode,
         ];
     })->values();
+    // Non-JS fallback: after a server-side validation redirect, re-fill the
+    // form from what was submitted instead of the saved invoice.
+    if (is_array(old('lines'))) {
+        $jsExistingLines = collect(old('lines'))->values();
+    }
     $jsQuotationLines = $quotation
         ? $quotation->serviceLines->where('service_type', 'ticket')->map(fn ($l) => [
             'supplier_id' => $l->supplier_id,
@@ -297,11 +320,11 @@
         <td class="index-cell align-middle"><span class="ticket-index-label"></span></td>
         <td>
             <input type="hidden" class="f-id">
-            <input type="text" class="form-control form-control-sm f-pax-name" placeholder="Passenger name" required>
+            <input type="text" class="form-control form-control-sm f-pax-name" placeholder="Passenger name">
         </td>
         <td><select class="form-control form-control-sm f-pax-type"></select></td>
         <td>
-            <input type="text" class="form-control form-control-sm f-ticket-no" placeholder="220-1234-567-890" maxlength="16" required>
+            <input type="text" class="form-control form-control-sm f-ticket-no" placeholder="220-1234-567-890" maxlength="16">
         </td>
         <td class="text-end align-middle f-row-amount">0.00</td>
         <td class="text-center align-middle">
@@ -310,31 +333,53 @@
     </tr>
 </template>
 
+<style>
+    #ticket-form-root .pair .is-derived { background-color: #f3f5f7; }
+    #ticket-form-root .select2-container { width: 100% !important; }
+</style>
+
 <script>
 (function () {
     const data = window.TICKET_FORM_DATA;
     const wrap = document.getElementById('tickets-wrap');
     const tpl = document.getElementById('ticket-row-tpl');
+    const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+    const num = id => parseFloat(document.getElementById(id).value) || 0;
     let idx = 0;
 
     // Fields shared by every ticket on the invoice — entered once in
     // Master Details, copied into every row's hidden inputs so the
-    // server-side payload (lines[i][field]) is unchanged.
+    // server-side payload (lines[i][field]) is one full line per ticket.
     const SHARED_FIELD_IDS = {
         supplier_id: 'm-supplier', airline_id: 'm-airline', pnr: 'm-pnr', trip_type: 'm-trip-type',
+        ticket_type: 'm-ticket-type',
         leg1_from: 'm-leg1-from', leg1_stay: 'm-leg1-stay', leg1_to: 'm-leg1-to',
         leg2_from: 'm-leg2-from', leg2_stay: 'm-leg2-stay', leg2_to: 'm-leg2-to',
-        fare_amount: 'm-fare', tax_amount: 'm-tax', apt_percent: 'm-apt-pct',
-        commission_percent: 'm-commission-pct', wht_percent: 'm-wht-pct',
-        psf_percent: 'm-psf-pct', psf_amount: 'm-psf-amt-input', psf_basis: 'm-psf-basis', psf_input_mode: 'm-psf-mode',
-        discount_percent: 'm-discount-pct', discount_amount: 'm-discount-amt', discount_input_mode: 'm-discount-mode',
-        sales_agent_id: 'm-agent', agent_commission_percent: 'm-agent-commission-pct',
-        ticket_type: 'm-ticket-type', apt_input_mode: 'm-apt-mode', apt_charges: 'm-apt-amt-input',
-        airline_discount_amount: 'm-airline-discount',
         leg1_departure_date: 'm-leg1-dep-date', leg1_departure_time: 'm-leg1-dep-time',
         leg2_departure_date: 'm-leg2-dep-date', leg2_departure_time: 'm-leg2-dep-time',
+        fare_amount: 'm-fare', tax_amount: 'm-tax',
+        apt_percent: 'm-apt-pct', apt_charges: 'm-apt-amt', apt_input_mode: 'm-apt-mode',
+        commission_percent: 'm-commission-pct', commission_amount: 'm-commission-amt', commission_input_mode: 'm-commission-mode',
+        wht_percent: 'm-wht-pct', wht_amount: 'm-wht-amt', wht_input_mode: 'm-wht-mode',
+        psf_percent: 'm-psf-pct', psf_amount: 'm-psf-amt', psf_input_mode: 'm-psf-mode', psf_basis: 'm-psf-basis',
+        discount_percent: 'm-discount-pct', discount_amount: 'm-discount-amt', discount_input_mode: 'm-discount-mode',
+        sales_agent_id: 'm-agent',
+        agent_commission_percent: 'm-agent_commission-pct', agent_commission_amount: 'm-agent_commission-amt',
+        agent_commission_input_mode: 'm-agent_commission-mode',
     };
     const SHARED_FIELDS = Object.keys(SHARED_FIELD_IDS);
+
+    // The two-way %/amount pairs, IN CALCULATION ORDER (each basis only
+    // depends on pairs above it) — mirrors TicketSaleInvoiceLine::recalculate().
+    const PAIRS = [
+        { key: 'apt',              basis: v => v.fare },
+        { key: 'psf',              basis: v => document.getElementById('m-psf-basis').value === 'total' ? round2(v.fare + v.tax + v.apt) : v.fare },
+        { key: 'discount',         basis: v => v.fare },
+        { key: 'commission',       basis: v => v.fare },
+        { key: 'wht',              basis: v => v.commission },
+        { key: 'agent_commission', basis: v => v.psf },
+    ];
+    const pairEl = (key, part) => document.getElementById('m-' + key + '-' + part);
 
     function fillSelect(select, items, valueKey, labelFn, placeholder) {
         select.innerHTML = '';
@@ -352,6 +397,15 @@
         });
     }
 
+    // Sets a <select>'s value and refreshes its select2 display (if any).
+    function setSelect(id, value) {
+        const el = document.getElementById(id);
+        el.value = value ?? '';
+        if (window.jQuery && window.jQuery.fn.select2 && window.jQuery(el).data('select2')) {
+            window.jQuery(el).trigger('change.select2');
+        }
+    }
+
     function formatTicketNo(raw) {
         const digits = (raw || '').replace(/\D/g, '').slice(0, 13);
         const segs = [3, 4, 3, 3];
@@ -364,13 +418,8 @@
         return (ticketNo || '').replace(/\D/g, '');
     }
 
-    // Auto-sequencing: "pick up from the first ticket, bump the number for
-    // each next one" — increments the full 13-digit number (not just the
-    // last character), so groups past 9 passengers roll over digits
-    // correctly (...009 -> ...010) instead of wrapping back to 0 and
-    // colliding. Falls back to blank (user fills in manually) if the
-    // first ticket # isn't a complete 13-digit number yet, or the
-    // increment would spill past 13 digits.
+    // Auto-sequencing: increments the full 13-digit number, so groups past
+    // 9 passengers roll over correctly (...009 -> ...010).
     function incrementTicketNo(baseDigits, offset) {
         if (!baseDigits || baseDigits.length !== 13 || offset === 0) {
             return baseDigits && baseDigits.length === 13 ? formatTicketNo(baseDigits) : '';
@@ -388,15 +437,7 @@
         return digitsOf(firstRow.querySelector('.f-ticket-no').value);
     }
 
-    function applyAptMode() {
-        const mode = document.getElementById('m-apt-mode').value;
-        document.getElementById('m-apt-pct').style.display = mode === 'amount' ? 'none' : '';
-        document.getElementById('m-apt-amt-input').style.display = mode === 'amount' ? '' : 'none';
-    }
-
     // ---- Cities: From - Stay(s) - To, any number of Stay cities ----
-    // The visible Stay inputs are built here; their values are joined with
-    // "-" into the hidden #m-legN-stay (the field that actually saves).
     function routeEls(leg) {
         const wrapEl = document.querySelector('[data-leg="' + leg + '"]');
         return { wrapEl, holder: wrapEl.querySelector('.route-stays'), hidden: document.getElementById('m-' + leg + '-stay') };
@@ -405,8 +446,7 @@
     function syncRouteHidden(leg) {
         const { holder, hidden } = routeEls(leg);
         hidden.value = [...holder.querySelectorAll('.route-stay-input')].map(i => i.value.trim()).filter(Boolean).join('-');
-        recalcMaster();
-        syncAllRowsFromMaster();
+        masterChanged();
     }
 
     function addStayInput(leg, value) {
@@ -444,79 +484,44 @@
         routeEls(leg).wrapEl.querySelector('.route-add-btn').addEventListener('click', () => addStayInput(leg, '').focus());
     });
 
-    function applyPsfMode() {
-        const mode = document.getElementById('m-psf-mode').value;
-        document.getElementById('m-psf-pct').style.display = mode === 'amount' ? 'none' : '';
-        document.getElementById('m-psf-amt-input').style.display = mode === 'amount' ? '' : 'none';
-    }
-
-    function applyDiscountMode() {
-        const mode = document.getElementById('m-discount-mode').value;
-        document.getElementById('m-discount-pct').style.display = mode === 'amount' ? 'none' : '';
-        document.getElementById('m-discount-amt').style.display = mode === 'amount' ? '' : 'none';
-    }
-
     function applyTripType() {
         document.getElementById('m-leg2-wrap').style.display = document.getElementById('m-trip-type').value === 'return' ? 'flex' : 'none';
     }
 
-    // Mirrors TicketSaleInvoiceLine::recalculate() server-side — this is
-    // for live display only, the server always recomputes authoritatively.
+    // Shades whichever side of each pair is the calculated one.
+    function applyPairModes() {
+        PAIRS.forEach(({ key }) => {
+            const amountMode = pairEl(key, 'mode').value === 'amount';
+            pairEl(key, 'pct').classList.toggle('is-derived', amountMode);
+            pairEl(key, 'amt').classList.toggle('is-derived', !amountMode);
+        });
+    }
+
+    // Live display only — the server always recomputes authoritatively.
     let perTicketTotal = 0;
     let perTicketSupplierNet = 0;
 
     function recalcMaster() {
-        const round2 = n => Math.round(n * 100) / 100;
+        const v = { fare: num('m-fare'), tax: num('m-tax') };
 
-        const fare = parseFloat(document.getElementById('m-fare').value) || 0;
-        const tax = parseFloat(document.getElementById('m-tax').value) || 0;
-        const aptMode = document.getElementById('m-apt-mode').value || 'percent';
-        const aptPct = parseFloat(document.getElementById('m-apt-pct').value) || 0;
-        const airlineDisc = parseFloat(document.getElementById('m-airline-discount').value) || 0;
-        const psfBasis = document.getElementById('m-psf-basis').value || 'fare';
-        const psfMode = document.getElementById('m-psf-mode').value || 'percent';
-        const discountMode = document.getElementById('m-discount-mode').value || 'percent';
-        const commPct = parseFloat(document.getElementById('m-commission-pct').value) || 0;
-        const whtPct = parseFloat(document.getElementById('m-wht-pct').value) || 0;
-        const agentCommPct = parseFloat(document.getElementById('m-agent-commission-pct').value) || 0;
+        PAIRS.forEach(({ key, basis }) => {
+            const b = basis(v);
+            const pctEl = pairEl(key, 'pct'), amtEl = pairEl(key, 'amt');
+            let amt;
+            if (pairEl(key, 'mode').value === 'amount') {
+                amt = round2(parseFloat(amtEl.value) || 0);
+                const pct = b > 0 ? round2(amt / b * 100) : 0;
+                if (document.activeElement !== pctEl) pctEl.value = pct;
+            } else {
+                const pct = parseFloat(pctEl.value) || 0;
+                amt = round2(b * pct / 100);
+                if (document.activeElement !== amtEl) amtEl.value = amt;
+            }
+            v[key] = amt;
+        });
 
-        const aptAmt = aptMode === 'amount'
-            ? (parseFloat(document.getElementById('m-apt-amt-input').value) || 0)
-            : round2(fare * aptPct / 100);
-        const aptPctShown = aptMode === 'amount' ? (fare > 0 ? round2(aptAmt / fare * 100) : 0) : aptPct;
-
-        const psfBasisAmt = psfBasis === 'total' ? round2(fare + tax + aptAmt) : fare;
-        let psfPct, psfAmt;
-        if (psfMode === 'amount') {
-            psfAmt = parseFloat(document.getElementById('m-psf-amt-input').value) || 0;
-            psfPct = psfBasisAmt > 0 ? round2(psfAmt / psfBasisAmt * 100) : 0;
-        } else {
-            psfPct = parseFloat(document.getElementById('m-psf-pct').value) || 0;
-            psfAmt = round2(psfBasisAmt * psfPct / 100);
-        }
-
-        let discPct, discAmt;
-        if (discountMode === 'amount') {
-            discAmt = parseFloat(document.getElementById('m-discount-amt').value) || 0;
-            discPct = fare > 0 ? round2(discAmt / fare * 100) : 0;
-        } else {
-            discPct = parseFloat(document.getElementById('m-discount-pct').value) || 0;
-            discAmt = round2(fare * discPct / 100);
-        }
-
-        const commAmt = round2(fare * commPct / 100);
-        const whtAmt = round2(commAmt * whtPct / 100);
-        const total = round2(fare + tax + aptAmt + psfAmt - discAmt);
-        // Sale commission is on the PSF amount, not the ticket total.
-        const agentCommAmt = round2(psfAmt * agentCommPct / 100);
-        const supplierNet = round2(fare + tax + aptAmt - commAmt + whtAmt - airlineDisc);
-
-        document.getElementById('m-apt-amt').textContent = aptMode === 'amount' ? aptPctShown.toFixed(2) + '%' : aptAmt.toFixed(2);
-        document.getElementById('m-psf-computed').textContent = psfMode === 'amount' ? psfPct.toFixed(2) + '%' : psfAmt.toFixed(2);
-        document.getElementById('m-discount-computed').textContent = discountMode === 'amount' ? discPct.toFixed(2) + '%' : discAmt.toFixed(2);
-        document.getElementById('m-commission-amt').textContent = commAmt.toFixed(2);
-        document.getElementById('m-wht-amt').textContent = whtAmt.toFixed(2);
-        document.getElementById('m-agent-commission-amt').textContent = agentCommAmt.toFixed(2);
+        const total = round2(v.fare + v.tax + v.apt + v.psf - v.discount);
+        const supplierNet = round2(v.fare + v.tax + v.apt - v.commission + v.wht);
         document.getElementById('m-total-amount').textContent = total.toFixed(2);
 
         perTicketTotal = total;
@@ -530,19 +535,17 @@
         const count = rows.length;
         document.getElementById('ticket-count').textContent = count;
         document.getElementById('per-ticket-total').textContent = perTicketTotal.toFixed(2);
-        // Grand total = one ticket's total × number of tickets, per client spec.
         document.getElementById('grand-total').textContent = (perTicketTotal * count).toFixed(2);
         document.getElementById('s-supplier-net').textContent = perTicketSupplierNet.toFixed(2);
         document.getElementById('s-supplier-total').textContent = (perTicketSupplierNet * count).toFixed(2);
     }
 
+    function masterChanged() {
+        recalcMaster();
+        syncAllRowsFromMaster();
+    }
+
     function reindexRows() {
-        // Names are keyed off the row's current visual POSITION (i), not
-        // row.dataset.idx (a creation-order id) — using dataset.idx here
-        // used to leave gaps in the submitted lines[] keys after a row in
-        // the middle was removed (e.g. lines[0], lines[1], lines[3] with
-        // no lines[2]), which is harmless to PHP's array handling but is
-        // fragile for no benefit, so this always renumbers 0..N-1.
         wrap.querySelectorAll('.ticket-row').forEach((row, i) => {
             row.querySelector('.ticket-index-label').textContent = i + 1;
             row.querySelectorAll('[data-name]').forEach(el => {
@@ -551,13 +554,9 @@
         });
     }
 
-    // Copies the current Master Details values into one row's hidden
-    // inputs. Called for every new row, and for every existing row
-    // whenever a Master Details field changes (see the listeners below).
     function syncRowFromMaster(row) {
         SHARED_FIELDS.forEach(field => {
-            const master = document.getElementById(SHARED_FIELD_IDS[field]);
-            row.querySelector('.f-' + field).value = master.value;
+            row.querySelector('.f-' + field).value = document.getElementById(SHARED_FIELD_IDS[field]).value;
         });
     }
 
@@ -566,11 +565,8 @@
     }
 
     // `ownValues`, when given, seeds a row's hidden fields from that
-    // ticket's OWN previously-saved values instead of the current Master
-    // Details fields — used only when loading an existing invoice, so a
-    // ticket that was entered with different charges before this form
-    // changed keeps its original figures until Master Details is
-    // actually touched (see the warning banner above).
+    // ticket's OWN saved values (editing an older invoice whose tickets
+    // differ) until Master Details is actually touched.
     function addTicketRow(prefill, ownValues) {
         prefill = prefill || {};
         const node = tpl.content.cloneNode(true);
@@ -589,12 +585,6 @@
         row.querySelector('.f-pax-type').value = prefill.pax_type || 'adult';
         row.querySelector('.f-ticket-no').value = prefill.ticket_no || '';
 
-        // Hidden shared-field inputs, one per master field, so the submit
-        // payload still carries a full line per ticket exactly like before.
-        // Tucked inside the index cell (as siblings of the index number
-        // span, not replacing it) so the <tr> itself only ever has <td>
-        // children — hidden inputs work from anywhere in the form, but
-        // this keeps the table markup valid.
         const indexCell = row.querySelector('.index-cell');
         SHARED_FIELDS.forEach(field => {
             const input = document.createElement('input');
@@ -610,20 +600,7 @@
             syncRowFromMaster(row);
         }
 
-        // Auto-numbering only reads/reacts off the FIRST row — airline
-        // detection and the auto-fill of later rows are both keyed off
-        // ticket #1, same as Master Details is keyed off ticket #1.
-        //
-        // Any row's ticket # field is "auto" (dataset.autoFilled = '1')
-        // until the user types into it directly, at which point this
-        // listener marks it manual and auto-sequencing leaves it alone
-        // from then on. This is what makes correcting ticket #1 actually
-        // cascade to #2, #3, ... instead of only filling them the first
-        // time: a row that's still blank OR still auto-filled gets
-        // overwritten every time #1 changes; a row the user typed into
-        // themselves never gets touched again.
         row.querySelector('.f-ticket-no').addEventListener('input', e => {
-            e.target.setCustomValidity(''); // clear any stale "wrong length" flag from a previous submit attempt
             e.target.dataset.autoFilled = '';
             if (row === wrap.querySelector('.ticket-row')) {
                 autoSequenceTicketNumbers();
@@ -648,17 +625,8 @@
         return row;
     }
 
-    // Keeps every row's ticket # sequenced off the first ticket's number
-    // (position in the grid = offset: #1 + 1 -> row 2, #1 + 2 -> row 3,
-    // ...). Runs every time ticket #1 changes, not just once, so:
-    //   - rows added before #1 was finished fill in retroactively the
-    //     moment #1 reaches 13 digits;
-    //   - rows added after #1 is already complete get numbered right away;
-    //   - correcting a wrong ticket #1 re-numbers every row that's still
-    //     on an auto-generated value, cascading the fix forward.
-    // A row the user has typed into directly is marked "manual" (see the
-    // 'input' listener in addTicketRow, which clears dataset.autoFilled)
-    // and is never touched here again, auto-generated or not.
+    // Keeps every row's ticket # sequenced off ticket #1 — rows the user
+    // typed into by hand are never overwritten.
     function autoSequenceTicketNumbers() {
         const baseDigits = firstRowTicketDigits();
         if (baseDigits.length !== 13) return;
@@ -680,7 +648,7 @@
         const code = digits.slice(0, 3);
         const match = data.airlines.find(a => a.code === code);
         if (match) {
-            document.getElementById('m-airline').value = match.id;
+            setSelect('m-airline', match.id);
             hint.textContent = 'Auto-detected: ' + match.name;
             syncAllRowsFromMaster();
         } else {
@@ -688,10 +656,6 @@
         }
     }
 
-    // Shows the "tickets don't all match" warning when existing lines
-    // (loaded from a saved invoice) differ from the first one on any of
-    // the shared fields — before any edit, so the agent knows what
-    // touching Master Details will do.
     function checkLinesDiffer(lines) {
         if (lines.length < 2) return;
         const first = lines[0];
@@ -702,41 +666,41 @@
     }
 
     function fillMasterFromLine(line) {
-        document.getElementById('m-supplier').value = line.supplier_id || '';
-        document.getElementById('m-airline').value = line.airline_id || '';
+        setSelect('m-supplier', line.supplier_id || '');
+        setSelect('m-airline', line.airline_id || '');
+        setSelect('m-agent', line.sales_agent_id || '');
         document.getElementById('m-pnr').value = line.pnr || '';
         document.getElementById('m-trip-type').value = line.trip_type || 'one_way';
+        document.getElementById('m-ticket-type').value = line.ticket_type || 'international';
         document.getElementById('m-leg1-from').value = line.leg1_from || '';
         setStays('leg1', line.leg1_stay);
         document.getElementById('m-leg1-to').value = line.leg1_to || '';
         document.getElementById('m-leg2-from').value = line.leg2_from || '';
         setStays('leg2', line.leg2_stay);
-        document.getElementById('m-ticket-type').value = line.ticket_type || 'international';
-        document.getElementById('m-leg1-dep-date').value = line.leg1_departure_date || '';
-        document.getElementById('m-leg1-dep-time').value = line.leg1_departure_time || '';
-        document.getElementById('m-leg2-dep-date').value = line.leg2_departure_date || '';
-        document.getElementById('m-leg2-dep-time').value = line.leg2_departure_time || '';
-        document.getElementById('m-apt-mode').value = line.apt_input_mode || 'percent';
-        document.getElementById('m-apt-amt-input').value = line.apt_charges || 0;
-        document.getElementById('m-airline-discount').value = line.airline_discount_amount || 0;
         document.getElementById('m-leg2-to').value = line.leg2_to || '';
+        document.getElementById('m-leg1-dep-date').value = line.leg1_departure_date || '';
+        document.getElementById('m-leg1-dep-time').value = (line.leg1_departure_time || '').slice(0, 5);
+        document.getElementById('m-leg2-dep-date').value = line.leg2_departure_date || '';
+        document.getElementById('m-leg2-dep-time').value = (line.leg2_departure_time || '').slice(0, 5);
         document.getElementById('m-fare').value = line.fare_amount || 0;
         document.getElementById('m-tax').value = line.tax_amount || 0;
-        document.getElementById('m-apt-pct').value = line.apt_percent || 0;
-        document.getElementById('m-commission-pct').value = line.commission_percent || 0;
-        document.getElementById('m-wht-pct').value = line.wht_percent || 0;
-        document.getElementById('m-psf-pct').value = line.psf_percent || 0;
-        document.getElementById('m-psf-amt-input').value = line.psf_amount || 0;
         document.getElementById('m-psf-basis').value = line.psf_basis || 'fare';
-        document.getElementById('m-psf-mode').value = line.psf_input_mode || 'percent';
-        document.getElementById('m-discount-pct').value = line.discount_percent || 0;
-        document.getElementById('m-discount-amt').value = line.discount_amount || 0;
-        document.getElementById('m-discount-mode').value = line.discount_input_mode || 'percent';
-        document.getElementById('m-agent').value = line.sales_agent_id || '';
-        document.getElementById('m-agent-commission-pct').value = line.agent_commission_percent || 0;
-        applyAptMode();
-        applyPsfMode();
-        applyDiscountMode();
+
+        const pairSource = {
+            apt: ['apt_percent', 'apt_charges', 'apt_input_mode'],
+            commission: ['commission_percent', 'commission_amount', 'commission_input_mode'],
+            wht: ['wht_percent', 'wht_amount', 'wht_input_mode'],
+            psf: ['psf_percent', 'psf_amount', 'psf_input_mode'],
+            discount: ['discount_percent', 'discount_amount', 'discount_input_mode'],
+            agent_commission: ['agent_commission_percent', 'agent_commission_amount', 'agent_commission_input_mode'],
+        };
+        Object.entries(pairSource).forEach(([key, [pctF, amtF, modeF]]) => {
+            pairEl(key, 'pct').value = parseFloat(line[pctF]) || 0;
+            pairEl(key, 'amt').value = parseFloat(line[amtF]) || 0;
+            pairEl(key, 'mode').value = line[modeF] === 'amount' ? 'amount' : 'percent';
+        });
+
+        applyPairModes();
         applyTripType();
     }
 
@@ -744,27 +708,25 @@
     fillSelect(document.getElementById('m-airline'), data.airlines, 'id', a => a.name + ' (' + a.code + ')', '— auto from first ticket # —');
     fillSelect(document.getElementById('m-agent'), data.agents, 'id', u => u.name, '— none —');
 
-    // Master field changes recompute the total AND cascade to every row
-    // (intentional — see the warning banner: Master Details applies to
-    // every ticket on the invoice, there's no per-ticket override).
-    ['m-fare', 'm-tax', 'm-apt-pct', 'm-apt-amt-input', 'm-airline-discount', 'm-leg1-dep-date', 'm-leg1-dep-time', 'm-leg2-dep-date', 'm-leg2-dep-time', 'm-psf-pct', 'm-psf-amt-input', 'm-discount-pct', 'm-discount-amt',
-     'm-commission-pct', 'm-wht-pct', 'm-agent-commission-pct', 'm-supplier', 'm-airline', 'm-pnr',
-     'm-leg1-from', 'm-leg1-stay', 'm-leg1-to', 'm-leg2-from', 'm-leg2-stay', 'm-leg2-to', 'm-agent'].forEach(id => {
-        document.getElementById(id).addEventListener('input', () => { recalcMaster(); syncAllRowsFromMaster(); });
+    // Typing in either side of a pair makes that side the "entered" one.
+    PAIRS.forEach(({ key }) => {
+        pairEl(key, 'pct').addEventListener('input', () => { pairEl(key, 'mode').value = 'percent'; applyPairModes(); masterChanged(); });
+        pairEl(key, 'amt').addEventListener('input', () => { pairEl(key, 'mode').value = 'amount'; applyPairModes(); masterChanged(); });
+        // Recompute once focus leaves (the derived side was skipped while focused).
+        ['pct', 'amt'].forEach(part => pairEl(key, part).addEventListener('blur', recalcMaster));
     });
-    document.getElementById('m-ticket-type').addEventListener('change', () => { recalcMaster(); syncAllRowsFromMaster(); });
-    document.getElementById('m-apt-mode').addEventListener('change', () => { applyAptMode(); recalcMaster(); syncAllRowsFromMaster(); });
-    document.getElementById('m-psf-basis').addEventListener('change', () => { recalcMaster(); syncAllRowsFromMaster(); });
-    document.getElementById('m-psf-mode').addEventListener('change', () => { applyPsfMode(); recalcMaster(); syncAllRowsFromMaster(); });
-    document.getElementById('m-discount-mode').addEventListener('change', () => { applyDiscountMode(); recalcMaster(); syncAllRowsFromMaster(); });
-    document.getElementById('m-trip-type').addEventListener('change', () => { applyTripType(); recalcMaster(); syncAllRowsFromMaster(); });
+
+    ['m-fare', 'm-tax', 'm-pnr', 'm-leg1-from', 'm-leg1-to', 'm-leg2-from', 'm-leg2-to',
+     'm-leg1-dep-date', 'm-leg1-dep-time', 'm-leg2-dep-date', 'm-leg2-dep-time'].forEach(id => {
+        document.getElementById(id).addEventListener('input', masterChanged);
+    });
+    ['m-supplier', 'm-airline', 'm-agent', 'm-ticket-type', 'm-psf-basis'].forEach(id => {
+        document.getElementById(id).addEventListener('change', masterChanged);
+    });
+    document.getElementById('m-trip-type').addEventListener('change', () => { applyTripType(); masterChanged(); });
 
     document.getElementById('add-ticket-btn').addEventListener('click', () => {
         addTicketRow({});
-        // Covers both orders: ticket #1 already complete when this row is
-        // added (fills it immediately), or still incomplete (this row
-        // stays blank for now and gets filled in later, retroactively, by
-        // the listeners on ticket #1 above once it reaches 13 digits).
         autoSequenceTicketNumbers();
         recalcGrandTotal();
     });
@@ -782,37 +744,145 @@
     }
 
     recalcMaster();
+    if (!data.existingLines.length) syncAllRowsFromMaster();
 
-    // Catch an incomplete Ticket # before it ever reaches the server —
-    // previously this only surfaced as a "must be exactly 13 digits"
-    // error after a full round-trip, on whichever rows happened to be
-    // incomplete, with no indication in the browser of which field or
-    // why. Blank ticket # is still allowed (the server treats it as
-    // "not entered yet"); only a PARTIAL one (something typed, but not
-    // 13 digits) blocks submission here.
-    const formEl = wrap.closest('form');
-    if (formEl) {
-        formEl.addEventListener('submit', (e) => {
-            let firstInvalid = null;
-            wrap.querySelectorAll('.ticket-row').forEach((row, i) => {
-                const ticketInput = row.querySelector('.f-ticket-no');
-                const paxName = row.querySelector('.f-pax-name').value.trim();
-                const digitCount = digitsOf(ticketInput.value).length;
-                if (paxName && digitCount > 0 && digitCount !== 13) {
-                    ticketInput.setCustomValidity(
-                        'Ticket row ' + (i + 1) + ': this Ticket # has ' + digitCount + ' digit(s), needs exactly 13 ' +
-                        '(format 220-1234-567-890). Finish typing it, or clear it and let it auto-fill from ticket #1.'
-                    );
-                    if (!firstInvalid) firstInvalid = ticketInput;
-                } else {
-                    ticketInput.setCustomValidity('');
-                }
+    // ---- Searchable dropdowns (select2) ----
+    // jQuery + select2 are loaded in the layout footer, AFTER this script,
+    // so initialise once the page has finished parsing. select2 fires
+    // jQuery events only, so re-dispatch a native 'change' for the
+    // listeners above.
+    document.addEventListener('DOMContentLoaded', () => {
+        const $ = window.jQuery;
+        if (!$ || !$.fn.select2) return;
+        document.querySelectorAll('#ticket-form-root .ti-select2').forEach(el => {
+            $(el).select2({ width: '100%', placeholder: el.options[0] ? el.options[0].text : '', allowClear: !!(el.options[0] && el.options[0].value === '') });
+            $(el).on('select2:select select2:clear', () => {
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                clearFieldError(el);
             });
-            if (firstInvalid) {
-                e.preventDefault();
-                firstInvalid.reportValidity();
-                firstInvalid.focus();
+        });
+    });
+
+    // ---- Submit via AJAX: validation errors are shown inline, the page never reloads ----
+    const formEl = wrap.closest('form');
+    const errorBox = document.getElementById('ticket-form-errors');
+
+    function clearFieldError(el) {
+        el.classList.remove('is-invalid');
+        const s2 = el.nextElementSibling;
+        if (s2 && s2.classList.contains('select2')) {
+            s2.classList.remove('is-invalid-select2');
+            const sel = s2.querySelector('.select2-selection');
+            if (sel) sel.style.borderColor = '';
+        }
+    }
+
+    function markInvalid(el) {
+        if (!el) return;
+        el.classList.add('is-invalid');
+        const s2 = el.nextElementSibling;
+        if (s2 && s2.classList.contains('select2')) {
+            s2.classList.add('is-invalid-select2');
+            const sel = s2.querySelector('.select2-selection');
+            if (sel) sel.style.borderColor = '#dc3545';
+        }
+    }
+
+    // Maps a server error key (customer_id, lines.2.ticket_no, lines.0.psf_percent ...) to its input.
+    function fieldForKey(key) {
+        if (!key.startsWith('lines.')) {
+            return formEl.querySelector('[name="' + key + '"]');
+        }
+        const [, i, field] = key.split('.');
+        if (!field) return null;
+        if (SHARED_FIELD_IDS[field]) return document.getElementById(SHARED_FIELD_IDS[field]);
+        const row = wrap.querySelectorAll('.ticket-row')[parseInt(i, 10)];
+        return row ? row.querySelector('[data-name="' + field + '"]') : null;
+    }
+
+    function showErrors(errors, fallbackMessage) {
+        formEl.querySelectorAll('.is-invalid').forEach(clearFieldError);
+        const messages = [];
+        let firstEl = null;
+        Object.entries(errors || {}).forEach(([key, list]) => {
+            const field = key.split('.')[2];
+            const shared = key.startsWith('lines.') && SHARED_FIELD_IDS[field];
+            (list || []).forEach(msg => {
+                // A Master Details field fails identically on every row — show it once, without the row number.
+                const text = shared ? msg.replace(/^(The )?Ticket row \d+ /i, '$1') : msg;
+                if (!messages.includes(text)) messages.push(text);
+            });
+            const el = fieldForKey(key);
+            markInvalid(el);
+            if (!firstEl && el) firstEl = el;
+        });
+        if (!messages.length) messages.push(fallbackMessage || 'Something went wrong. Please try again.');
+
+        errorBox.innerHTML = '<strong>Please fix the following:</strong><ul class="mb-0"></ul>';
+        const ul = errorBox.querySelector('ul');
+        messages.forEach(m => { const li = document.createElement('li'); li.textContent = m; ul.appendChild(li); });
+        errorBox.style.display = '';
+        errorBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (firstEl && firstEl.offsetParent !== null) setTimeout(() => firstEl.focus({ preventScroll: true }), 300);
+    }
+
+    // Client-side check for a PARTIAL ticket # (blank is allowed — "not entered yet").
+    function clientErrors() {
+        const errors = {};
+        wrap.querySelectorAll('.ticket-row').forEach((row, i) => {
+            const paxName = row.querySelector('.f-pax-name').value.trim();
+            const digitCount = digitsOf(row.querySelector('.f-ticket-no').value).length;
+            if (paxName && digitCount > 0 && digitCount !== 13) {
+                errors['lines.' + i + '.ticket_no'] = ['Ticket row ' + (i + 1) + ': Ticket # has ' + digitCount +
+                    ' digit(s), needs exactly 13 (format 220-1234-567-890). Finish it, or clear it to auto-fill from ticket #1.'];
             }
+        });
+        if (!document.getElementById('customer-select').value) errors.customer_id = ['Please select a customer.'];
+        if (!formEl.querySelector('[name="invoice_date"]').value) errors.invoice_date = ['Please enter the invoice date.'];
+        return errors;
+    }
+
+    if (formEl) {
+        // Browser-native validation is OFF: it silently blocked submits when a
+        // hidden input (e.g. the inactive side of a %/amount pair) was "invalid".
+        formEl.setAttribute('novalidate', 'novalidate');
+        formEl.addEventListener('input', e => { if (e.target.classList) clearFieldError(e.target); });
+
+        formEl.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            recalcMaster();
+            syncAllRowsFromMaster();
+
+            const local = clientErrors();
+            if (Object.keys(local).length) { showErrors(local); return; }
+
+            const btn = formEl.querySelector('[type="submit"]');
+            const btnHtml = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.innerHTML = 'Saving…'; }
+
+            try {
+                const res = await fetch(formEl.action, {
+                    method: 'POST', // _method=PUT (edit) travels in the form data
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: new FormData(formEl),
+                    credentials: 'same-origin',
+                });
+                let json = {};
+                try { json = await res.json(); } catch (_) {}
+
+                if (res.ok && json.redirect) {
+                    window.location.href = json.redirect;
+                    return;
+                }
+                if (res.status === 419) {
+                    showErrors({}, 'Your session expired. Please refresh the page and try again (copy anything you typed first).');
+                } else {
+                    showErrors(json.errors, json.message);
+                }
+            } catch (err) {
+                showErrors({}, 'Could not reach the server: ' + err.message);
+            }
+            if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
         });
     }
 })();

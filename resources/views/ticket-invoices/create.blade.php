@@ -18,7 +18,7 @@
                         </div>
                     @endif
                 </header>
-                <div class="card-body">
+                <div class="card-body" id="ticket-form-root">
                     @include('ticket-invoices._form', ['quotation' => $quotation ?? null])
                 </div>
                 <footer class="card-footer text-end">

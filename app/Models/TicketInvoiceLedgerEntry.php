@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class TicketInvoiceLedgerEntry extends Model
 {
     protected $fillable = [
-        'ticket_sale_invoice_id', 'voucher_id', 'entry_type', 'airline_id', 'amount',
+        'ticket_sale_invoice_id', 'ticket_sale_invoice_line_id', 'voucher_id', 'entry_type', 'adjustment', 'airline_id', 'amount',
     ];
 
     protected $casts = [
@@ -22,6 +22,11 @@ class TicketInvoiceLedgerEntry extends Model
     public function invoice()
     {
         return $this->belongsTo(TicketSaleInvoice::class, 'ticket_sale_invoice_id');
+    }
+
+    public function line()
+    {
+        return $this->belongsTo(TicketSaleInvoiceLine::class, 'ticket_sale_invoice_line_id');
     }
 
     public function voucher()
