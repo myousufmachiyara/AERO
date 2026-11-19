@@ -62,6 +62,59 @@
                     </tbody>
                 </table>
 
+                {{-- Tickets (Ticket Sale Invoice layout): Master Details once + one row per passenger. --}}
+                @php($tkLines = $linesByType->get('ticket', collect()))
+                @php($tkFirst = optional($tkLines->first())->ticketDetail)
+                @if($tkLines->isNotEmpty() && $tkFirst && $tkFirst->hasTicketSalePricing())
+                    <h5>Tickets</h5>
+                    <div class="row small mb-2">
+                        <div class="col-md-3"><strong>Supplier:</strong> {{ $tkLines->first()->supplier->name ?? '—' }}</div>
+                        <div class="col-md-3"><strong>Airline:</strong> {{ $tkFirst->airlineRecord->name ?? ($tkFirst->airline ?: '—') }}</div>
+                        <div class="col-md-2"><strong>PNR:</strong> {{ $tkFirst->pnr ?: '—' }}</div>
+                        <div class="col-md-2"><strong>Ticket Type:</strong> {{ ucfirst($tkFirst->ticket_type) }}</div>
+                        <div class="col-md-2"><strong>Trip Type:</strong> {{ $tkFirst->trip_type === 'return' ? 'Return' : 'One Way' }}</div>
+                        <div class="col-md-6"><strong>Cities:</strong> {{ $tkFirst->citiesLabel() ?: '—' }}</div>
+                        <div class="col-md-6"><strong>Departure:</strong>
+                            {{ optional($tkFirst->leg1_departure_date)->format('d/m/Y') ?? '—' }} {{ $tkFirst->leg1_departure_time ? substr($tkFirst->leg1_departure_time, 0, 5) : '' }}
+                            @if($tkFirst->trip_type === 'return') / Return: {{ optional($tkFirst->leg2_departure_date)->format('d/m/Y') ?? '—' }} {{ $tkFirst->leg2_departure_time ? substr($tkFirst->leg2_departure_time, 0, 5) : '' }}@endif
+                        </div>
+                        <div class="col-md-2"><strong>Fare:</strong> {{ number_format($tkFirst->fare_amount, 2) }}</div>
+                        <div class="col-md-2"><strong>Tax:</strong> {{ number_format($tkFirst->tax_amount, 2) }}</div>
+                        <div class="col-md-2"><strong>APT:</strong> {{ number_format($tkFirst->apt_charges, 2) }} <small class="text-muted">({{ number_format($tkFirst->apt_percent, 2) }}%)</small></div>
+                        <div class="col-md-3"><strong>Commission:</strong> {{ number_format($tkFirst->commission_amount, 2) }} <small class="text-muted">({{ number_format($tkFirst->commission_percent, 2) }}%)</small></div>
+                        <div class="col-md-3"><strong>WHT:</strong> {{ number_format($tkFirst->wht_amount, 2) }} <small class="text-muted">({{ number_format($tkFirst->wht_percent, 2) }}% on comm)</small></div>
+                        <div class="col-md-2"><strong>PSF:</strong> {{ number_format($tkFirst->psf_amount, 2) }} <small class="text-muted">({{ number_format($tkFirst->psf_percent, 2) }}% {{ $tkFirst->psf_basis === 'total' ? 'on total' : 'on fare' }})</small></div>
+                        <div class="col-md-2"><strong>Discount:</strong> {{ number_format($tkFirst->discount_amount, 2) }} <small class="text-muted">({{ number_format($tkFirst->discount_percent, 2) }}%)</small></div>
+                        <div class="col-md-3"><strong>Sale Agent (SPO):</strong> {{ $tkFirst->salesAgent->name ?? '—' }}</div>
+                        <div class="col-md-3"><strong>Sale Commission:</strong> {{ number_format($tkFirst->agent_commission_amount, 2) }} <small class="text-muted">({{ number_format($tkFirst->agent_commission_percent, 2) }}% on PSF)</small></div>
+                    </div>
+                    <table class="table table-bordered table-sm">
+                        <thead><tr><th>#</th><th>Passenger Name</th><th>Passenger Type</th><th>Ticket #</th><th class="text-end">Ticket Total</th><th class="text-end">Supplier Net</th><th class="text-end">Income</th></tr></thead>
+                        <tbody>
+                            @foreach($tkLines as $i => $line)
+                            <tr>
+                                <td>{{ $loop->iteration }}</td>
+                                <td>{{ $line->description ?: '—' }}</td>
+                                <td>{{ ucfirst($line->ticketDetail->pax_type ?? 'adult') }}</td>
+                                <td>{{ $line->ticketDetail->ticket_no ?? '—' }}</td>
+                                <td class="text-end">{{ number_format($line->receivable_l_amount, 2) }}</td>
+                                <td class="text-end">{{ number_format($line->payable_l_amount, 2) }}</td>
+                                <td class="text-end {{ $line->income_l_amount < 0 ? 'text-danger' : 'text-success' }}">{{ number_format($line->income_l_amount, 2) }}</td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold">
+                                <td colspan="4" class="text-end">Tickets Total ({{ $tkLines->count() }})</td>
+                                <td class="text-end">{{ number_format($tkLines->sum('receivable_l_amount'), 2) }}</td>
+                                <td class="text-end">{{ number_format($tkLines->sum('payable_l_amount'), 2) }}</td>
+                                <td class="text-end">{{ number_format($tkLines->sum('income_l_amount'), 2) }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    @php($linesByType = collect($linesByType->all())->except('ticket'))
+                @endif
+
                 @foreach(['ticket' => 'Ticket', 'hotel' => 'Hotel', 'transport' => 'Transport', 'visa' => 'Visa', 'other' => 'Other Services'] as $type => $label)
                     @if($linesByType->has($type))
                     <h5>{{ $label }}</h5>

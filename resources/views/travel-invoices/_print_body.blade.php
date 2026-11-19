@@ -29,7 +29,12 @@
                     <tbody>
                         @foreach($invoice->serviceLines as $line)
                         <tr>
-                            <td>{{ ucfirst($line->service_type) }}</td>
+                            <td>
+                                {{ ucfirst($line->service_type) }}
+                                @if($line->service_type === 'ticket' && $line->description)
+                                    <div class="small text-muted">{{ $line->description }}{{ $line->ticketDetail?->ticket_no ? ' — ' . $line->ticketDetail->ticket_no : '' }}{{ $line->ticketDetail?->sector ? ' — ' . $line->ticketDetail->sector : '' }}</div>
+                                @endif
+                            </td>
                             <td>{{ $line->supplier->name ?? '—' }}</td>
                             <td>{{ $line->currency }}</td>
                             <td>{{ number_format($line->receivable_l_amount, 2) }}</td>

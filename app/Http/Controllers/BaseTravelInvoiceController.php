@@ -2,16 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Airline;
 use App\Models\ChargeTemplate;
 use App\Models\ChargeType;
 use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\Hotel;
 use App\Models\HotelRoom;
+use App\Models\InvoiceTicketDetail;
 use App\Models\Quotation;
 use App\Models\RoomView;
 use App\Models\Service;
 use App\Models\Supplier;
+use App\Models\TicketSaleInvoiceLine;
 use App\Models\TravelInvoice;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -21,6 +24,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Shared implementation for Sale Invoice (tickets only) and Tour Invoice
@@ -96,6 +100,7 @@ abstract class BaseTravelInvoiceController extends Controller
     public function store(Request $request)
     {
         $validated = $this->validated($request);
+        $validated['lines'] = $this->prepareTicketLines($validated['lines'] ?? []);
 
         DB::beginTransaction();
         try {
@@ -122,13 +127,12 @@ abstract class BaseTravelInvoiceController extends Controller
 
             DB::commit();
 
-            return redirect()->route("{$this->routeUri()}.show", $invoice->id)
-                ->with('success', ucfirst($this->invoiceType()) . ' invoice created successfully.');
+            return $this->done($request, route("{$this->routeUri()}.show", $invoice->id), ucfirst($this->invoiceType()) . ' invoice created successfully.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TravelInvoice] store failed: ' . $e->getMessage());
 
-            return back()->withInput()->with('error', 'Could not create invoice: ' . $e->getMessage());
+            return $this->failed($request, 'Could not create invoice: ' . $e->getMessage(), 500);
         }
     }
 
@@ -137,6 +141,7 @@ abstract class BaseTravelInvoiceController extends Controller
         $invoice = $this->findForType($id, [
             'customer', 'quotation', 'staff', 'creator', 'passengers', 'payments',
             'serviceLines.supplier', 'serviceLines.ticketDetail.flights',
+            'serviceLines.ticketDetail.airlineRecord', 'serviceLines.ticketDetail.salesAgent',
             'serviceLines.hotelDetail.hotel', 'serviceLines.hotelDetail.hotelRoom',
             'serviceLines.hotelDetail.rooms.hotelRoom', 'serviceLines.hotelDetail.rooms.roomView',
             'serviceLines.transportDetail.vehicle', 'serviceLines.transportDetail.vehicles.vehicle',
@@ -167,10 +172,11 @@ abstract class BaseTravelInvoiceController extends Controller
         $invoice = $this->findForType($id);
 
         if (!$invoice->isEditable()) {
-            return redirect()->route("{$this->routeUri()}.show", $id)->with('error', 'Only draft invoices can be edited.');
+            return $this->failed($request, 'Only draft invoices can be edited.', 422, route("{$this->routeUri()}.show", $id));
         }
 
         $validated = $this->validated($request);
+        $validated['lines'] = $this->prepareTicketLines($validated['lines'] ?? [], $invoice->id);
 
         DB::beginTransaction();
         try {
@@ -190,13 +196,12 @@ abstract class BaseTravelInvoiceController extends Controller
 
             DB::commit();
 
-            return redirect()->route("{$this->routeUri()}.show", $invoice->id)
-                ->with('success', ucfirst($this->invoiceType()) . ' invoice updated successfully.');
+            return $this->done($request, route("{$this->routeUri()}.show", $invoice->id), ucfirst($this->invoiceType()) . ' invoice updated successfully.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('[TravelInvoice] update failed: ' . $e->getMessage());
 
-            return back()->withInput()->with('error', 'Could not update invoice: ' . $e->getMessage());
+            return $this->failed($request, 'Could not update invoice: ' . $e->getMessage(), 500);
         }
     }
 
@@ -297,6 +302,8 @@ abstract class BaseTravelInvoiceController extends Controller
             'visaTypes' => VisaType::where('is_active', true)->orderBy('name')->get(),
             'services' => Service::where('is_active', true)->orderBy('name')->get(),
             'staffUsers' => User::orderBy('name')->get(),
+            'airlines' => Airline::where('is_active', true)->orderBy('name')->get(),
+            'paxTypes' => TicketSaleInvoiceLine::PAX_TYPES,
             'serviceTypes' => $this->allowedServiceTypes(),
             'routeUri' => $this->routeUri(),
             'invoiceType' => $this->invoiceType(),
@@ -349,6 +356,41 @@ abstract class BaseTravelInvoiceController extends Controller
             'lines.*.detail.sector' => 'nullable|string|max:100',
             'lines.*.detail.tour_code' => 'nullable|string|max:50',
             'lines.*.detail.issue_date' => 'nullable|date',
+            // Ticket tab — identical fields to the Ticket Sale Invoice.
+            'lines.*.detail.pax_type' => ['nullable', Rule::in(TicketSaleInvoiceLine::PAX_TYPES)],
+            'lines.*.detail.airline_id' => 'nullable|exists:airlines,id',
+            'lines.*.detail.trip_type' => ['nullable', Rule::in(TicketSaleInvoiceLine::TRIP_TYPES)],
+            'lines.*.detail.leg1_from' => 'nullable|string|max:100',
+            'lines.*.detail.leg1_stay' => 'nullable|string|max:255',
+            'lines.*.detail.leg1_to' => 'nullable|string|max:100',
+            'lines.*.detail.leg1_departure_date' => 'nullable|date',
+            'lines.*.detail.leg1_departure_time' => ['nullable', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'lines.*.detail.leg2_from' => 'nullable|string|max:100',
+            'lines.*.detail.leg2_stay' => 'nullable|string|max:255',
+            'lines.*.detail.leg2_to' => 'nullable|string|max:100',
+            'lines.*.detail.leg2_departure_date' => 'nullable|date',
+            'lines.*.detail.leg2_departure_time' => ['nullable', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'lines.*.detail.fare_amount' => 'nullable|numeric|min:0',
+            'lines.*.detail.tax_amount' => 'nullable|numeric|min:0',
+            'lines.*.detail.apt_percent' => 'nullable|numeric|min:0|max:9999',
+            'lines.*.detail.apt_charges' => 'nullable|numeric|min:0',
+            'lines.*.detail.apt_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+            'lines.*.detail.commission_percent' => 'nullable|numeric|min:0|max:100',
+            'lines.*.detail.commission_amount' => 'nullable|numeric|min:0',
+            'lines.*.detail.commission_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+            'lines.*.detail.wht_percent' => 'nullable|numeric|min:0|max:100',
+            'lines.*.detail.wht_amount' => 'nullable|numeric|min:0',
+            'lines.*.detail.wht_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+            'lines.*.detail.psf_percent' => 'nullable|numeric|min:0|max:9999',
+            'lines.*.detail.psf_amount' => 'nullable|numeric|min:0',
+            'lines.*.detail.psf_basis' => ['nullable', Rule::in(TicketSaleInvoiceLine::PSF_BASES)],
+            'lines.*.detail.psf_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+            'lines.*.detail.discount_percent' => 'nullable|numeric|min:0|max:100',
+            'lines.*.detail.discount_amount' => 'nullable|numeric|min:0',
+            'lines.*.detail.discount_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+            'lines.*.detail.sales_agent_id' => 'nullable|exists:users,id',
+            'lines.*.detail.agent_commission_input_mode' => ['nullable', Rule::in(TicketSaleInvoiceLine::INPUT_MODES)],
+
             'lines.*.detail.flights' => 'nullable|array',
             'lines.*.detail.flights.*.city' => 'nullable|string|max:100',
             'lines.*.detail.flights.*.flight_no' => 'nullable|string|max:20',
@@ -398,7 +440,126 @@ abstract class BaseTravelInvoiceController extends Controller
             'lines.*.detail.reference_no' => 'nullable|string|max:100',
             'lines.*.detail.service_id' => 'nullable|exists:services,id',
             'lines.*.detail.qty' => 'nullable|integer|min:1',
-        ]);
+        ], [], $this->ticketAttributeNames($request));
+    }
+
+    /** "Ticket row 2 PSF %" instead of "lines.5.detail.psf_percent" in validation messages. */
+    protected function ticketAttributeNames(Request $request): array
+    {
+        $labels = [
+            'pax_type' => 'Passenger Type', 'airline_id' => 'Airline', 'ticket_no' => 'Ticket #',
+            'fare_amount' => 'Fare Amount', 'tax_amount' => 'Tax Amount',
+            'apt_percent' => 'APT %', 'apt_charges' => 'APT Amount',
+            'commission_percent' => 'Commission %', 'commission_amount' => 'Commission Amount',
+            'wht_percent' => 'WHT %', 'wht_amount' => 'WHT Amount',
+            'psf_percent' => 'PSF %', 'psf_amount' => 'PSF Amount',
+            'discount_percent' => 'Discount %', 'discount_amount' => 'Discount Amount',
+            'sales_agent_id' => 'Sale Agent', 'agent_commission_percent' => 'Sale Commission %',
+            'agent_commission_amount' => 'Sale Commission Amount',
+            'leg1_departure_date' => 'Departure Date', 'leg1_departure_time' => 'Departure Time',
+            'leg2_departure_date' => 'Return Departure Date', 'leg2_departure_time' => 'Return Departure Time',
+        ];
+
+        $names = ['customer_id' => 'Customer', 'invoice_date' => 'Date'];
+        $ticketRow = 0;
+        foreach ((array) $request->input('lines', []) as $i => $line) {
+            if (($line['service_type'] ?? null) !== 'ticket') {
+                continue;
+            }
+            $ticketRow++;
+            foreach ($labels as $field => $label) {
+                $names["lines.$i.detail.$field"] = "Ticket row {$ticketRow} {$label}";
+            }
+        }
+
+        return $names;
+    }
+
+    /**
+     * Ticket tab rules copied from the Ticket Sale Invoice: rows with no
+     * passenger name are skipped; Ticket # is blank or exactly 13 digits
+     * (stored as 220-1234-567-890), unique within the invoice and not
+     * already on another Tour Invoice or Ticket Sale Invoice; Airline is
+     * auto-detected from the ticket's 3-digit prefix when not picked.
+     */
+    protected function prepareTicketLines(array $lines, ?int $ignoreInvoiceId = null): array
+    {
+        $errors = [];
+        $seen = [];
+        $ticketRow = 0;
+
+        foreach ($lines as $i => $line) {
+            if (($line['service_type'] ?? null) !== 'ticket' || !is_array($line['detail'] ?? null) || !array_key_exists('fare_amount', $line['detail'])) {
+                continue;
+            }
+            $ticketRow++;
+
+            if (!filled($line['description'] ?? null)) {
+                unset($lines[$i]); // blank grid row
+                continue;
+            }
+
+            $label = "Ticket row {$ticketRow}";
+            try {
+                $ticketNo = TicketSaleInvoiceLine::normalizeTicketNo($line['detail']['ticket_no'] ?? null);
+            } catch (\InvalidArgumentException $e) {
+                $errors["lines.$i.detail.ticket_no"] = "{$label}: " . $e->getMessage();
+                continue;
+            }
+
+            if ($ticketNo) {
+                if (isset($seen[$ticketNo])) {
+                    $errors["lines.$i.detail.ticket_no"] = "{$label}: ticket # {$ticketNo} is duplicated in this invoice.";
+                    continue;
+                }
+                $seen[$ticketNo] = true;
+
+                $onTour = InvoiceTicketDetail::where('ticket_no', $ticketNo)
+                    ->whereHas('serviceLine', fn ($q) => $q->where('linkable_type', TravelInvoice::class)
+                        ->when($ignoreInvoiceId, fn ($q2) => $q2->where('linkable_id', '!=', $ignoreInvoiceId)))
+                    ->exists();
+                $onTicketSale = TicketSaleInvoiceLine::where('ticket_no', $ticketNo)->exists();
+                if ($onTour || $onTicketSale) {
+                    $errors["lines.$i.detail.ticket_no"] = "{$label}: ticket # {$ticketNo} is already used on another invoice.";
+                    continue;
+                }
+
+                if (empty($line['detail']['airline_id'])) {
+                    $code = TicketSaleInvoiceLine::airlineCodeFromTicketNo($ticketNo);
+                    $lines[$i]['detail']['airline_id'] = optional(Airline::where('numeric_code', $code)->first())->id;
+                }
+            }
+
+            $lines[$i]['detail']['ticket_no'] = $ticketNo;
+        }
+
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return $lines;
+    }
+
+    /** Success: JSON {redirect} for the AJAX form, a normal redirect otherwise. */
+    protected function done(Request $request, string $url, string $message)
+    {
+        if ($request->expectsJson()) {
+            session()->flash('success', $message);
+
+            return response()->json(['message' => $message, 'redirect' => $url]);
+        }
+
+        return redirect()->to($url)->with('success', $message);
+    }
+
+    /** Error that never reloads the page for an AJAX submit. */
+    protected function failed(Request $request, string $message, int $status = 422, ?string $redirect = null)
+    {
+        if ($request->expectsJson()) {
+            return response()->json(['message' => $message, 'errors' => ['_' => [$message]]], $status);
+        }
+
+        return ($redirect ? redirect()->to($redirect) : back()->withInput())->with('error', $message);
     }
 
     protected function nextNumber(): string

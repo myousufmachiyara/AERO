@@ -1,5 +1,5 @@
 <div class="row">
-    <form action="{{ route($routeUri . '.update', $invoice->id) }}" method="POST" onkeydown="return event.key != 'Enter';">
+    <form action="{{ route($routeUri . '.update', $invoice->id) }}" method="POST" id="travel-invoice-form" onkeydown="return event.key != 'Enter';">
         @csrf @method('PUT')
         <div class="col-12">
             <section class="card">
@@ -8,6 +8,8 @@
                     @if ($errors->any())<div class="alert alert-danger mt-2"><ul class="mb-0">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
                 </header>
                 <div class="card-body">
+                    <div id="travel-form-errors" class="alert alert-danger" style="display:none;" role="alert"></div>
+                    @if(session('error'))<div class="alert alert-danger">{{ session('error') }}</div>@endif
                     @include('travel-invoices._form', [
                         'customers' => $customers, 'suppliers' => $suppliers, 'chargeTemplates' => $chargeTemplates,
                         'chargeTypes' => $chargeTypes, 'hotels' => $hotels, 'vehicles' => $vehicles,
@@ -23,3 +25,4 @@
         </div>
     </form>
 </div>
+@include('travel-invoices._ajax_submit')

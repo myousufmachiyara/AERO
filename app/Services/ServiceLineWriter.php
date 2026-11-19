@@ -43,6 +43,21 @@ class ServiceLineWriter
                 continue;
             }
 
+            // Tour Invoice Ticket tab (Ticket Sale Invoice layout): price
+            // the ticket with the Ticket Sale Invoice's own math, then
+            // carry it on the service line as Receivable = Ticket Total
+            // (customer), Payable = Supplier Net (airline/supplier), in PKR.
+            // Quotation ticket lines never send `fare_amount`, so they are
+            // untouched.
+            if ($row['service_type'] === 'ticket' && is_array($row['detail'] ?? null) && array_key_exists('fare_amount', $row['detail'])) {
+                $row['detail'] = InvoiceTicketDetail::applyTicketSalePricing($row['detail']);
+                $row['currency'] = 'PKR';
+                $row['exchange_rate'] = 1;
+                $row['receivable_f_amount'] = $row['detail']['total_amount'];
+                $row['payable_f_amount'] = $row['detail']['supplier_net'];
+                $row['charges'] = [];
+            }
+
             $line = new ServiceLine([
                 'service_type' => $row['service_type'],
                 'supplier_id' => $row['supplier_id'] ?? null,
@@ -134,7 +149,7 @@ class ServiceLineWriter
 
         switch ($line->service_type) {
             case 'ticket':
-                $ticket = InvoiceTicketDetail::create([
+                $ticketAttrs = [
                     'service_line_id' => $line->id,
                     'pnr' => $detail['pnr'] ?? null,
                     'gds' => $detail['gds'] ?? null,
@@ -144,7 +159,38 @@ class ServiceLineWriter
                     'sector' => $detail['sector'] ?? null,
                     'tour_code' => $detail['tour_code'] ?? null,
                     'issue_date' => $detail['issue_date'] ?? null,
-                ]);
+                ];
+
+                if (array_key_exists('fare_amount', $detail)) {
+                    // Ticket Sale Invoice layout — every field it has.
+                    foreach ([
+                        'pax_type', 'airline_id', 'trip_type',
+                        'leg1_from', 'leg1_stay', 'leg1_to', 'leg1_departure_date', 'leg1_departure_time',
+                        'leg2_from', 'leg2_stay', 'leg2_to', 'leg2_departure_date', 'leg2_departure_time',
+                        'sales_agent_id', 'supplier_net',
+                    ] as $f) {
+                        $ticketAttrs[$f] = filled($detail[$f] ?? null) ? $detail[$f] : null;
+                    }
+                    foreach (InvoiceTicketDetail::PRICING_FIELDS as $f) {
+                        $ticketAttrs[$f] = $detail[$f];
+                    }
+                    $ticketAttrs['psf_basis'] = $detail['psf_basis'];
+                    $ticketAttrs['pax_type'] = $ticketAttrs['pax_type'] ?: 'adult';
+                    $ticketAttrs['trip_type'] = $ticketAttrs['trip_type'] ?: 'one_way';
+                    if ($ticketAttrs['trip_type'] !== 'return') {
+                        foreach (['leg2_from', 'leg2_stay', 'leg2_to', 'leg2_departure_date', 'leg2_departure_time'] as $f) {
+                            $ticketAttrs[$f] = null;
+                        }
+                    }
+                    // Keep the original text columns filled so the show/print
+                    // pages and reports that read them keep working.
+                    $ticketAttrs['airline'] = $ticketAttrs['airline_id']
+                        ? optional(\App\Models\Airline::find($ticketAttrs['airline_id']))->name
+                        : null;
+                    $ticketAttrs['sector'] = (new InvoiceTicketDetail($ticketAttrs))->citiesLabel() ?: null;
+                }
+
+                $ticket = InvoiceTicketDetail::create($ticketAttrs);
 
                 foreach (array_values($detail['flights'] ?? []) as $j => $flight) {
                     if (empty($flight['city']) && empty($flight['flight_no'])) {
