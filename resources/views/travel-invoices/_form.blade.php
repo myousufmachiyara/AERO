@@ -332,8 +332,13 @@
                     <input type="number" min="0" name="lines[__IDX__][detail][nights]" class="form-control hotel-nights" value="0" readonly>
                 </div>
                 <div class="col-md-3 mb-2">
-                    <label class="form-label">Booking Name <small class="field-note">(auto from Customer)</small></label>
-                    <input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control hotel-booking-name">
+                    <label class="form-label">Booking Name <small class="field-note">(from Passengers)</small></label>
+                    {{-- One passenger from General Information → Passengers; the
+                         chosen name is what's saved (booking_name stays plain text). --}}
+                    <select class="form-control hotel-booking-pax" onchange="onHotelBookingPaxChange(this)">
+                        <option value="">— Select Passenger —</option>
+                    </select>
+                    <input type="hidden" name="lines[__IDX__][detail][booking_name]" class="hotel-booking-name">
                 </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Currency <small class="text-muted">(invoice)</small></label>
@@ -1312,6 +1317,7 @@
             const name = tr.querySelector('input[name$="[name]"]')?.value.trim();
             return {
                 uid: tr.dataset.paxUid,
+                name: name || '',
                 label: name || `Passenger ${i + 1}`,
                 type: tr.querySelector('select[name$="[pax_type]"]')?.value || 'adult',
             };
@@ -1353,6 +1359,65 @@
         card.querySelector('.visa-pax-table tbody').appendChild(row);
         fillVisaPaxSelect(row.querySelector('.visa-pax-select'), visaPaxList());
         return row;
+    }
+
+    // ---- Hotel: Booking Name = one passenger from General Information ----
+    // Options are keyed by the passenger row (so renaming a passenger keeps
+    // the pick); the hidden .hotel-booking-name holds the name that's saved.
+    // A new line pre-selects the first named passenger until the user picks.
+    // A saved name that's no longer in the list (e.g. older lines that used
+    // the Customer's name) is kept as a "(saved)" option.
+    function fillHotelBookingPax(card) {
+        const select = card.querySelector('.hotel-booking-pax');
+        const hidden = card.querySelector('.hotel-booking-name');
+        if (!select || !hidden) return;
+
+        const list = visaPaxList().filter(p => p.name !== '');
+        const currentUid = select.value;
+        let savedName = hidden.value.trim();
+
+        // The passenger that was picked has been removed (or its name cleared) → drop the pick.
+        if (currentUid && currentUid !== '__saved' && !list.some(p => p.uid === currentUid)) {
+            savedName = '';
+            hidden.value = '';
+        }
+
+        select.innerHTML = '<option value="">— Select Passenger —</option>';
+        list.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.uid;
+            opt.textContent = p.label;
+            select.appendChild(opt);
+        });
+
+        let pick = currentUid ? list.find(p => p.uid === currentUid) : null;
+        if (!pick && savedName) pick = list.find(p => p.name === savedName);
+        if (!pick && !savedName && card.dataset.bookingTouched !== '1') pick = list[0];
+
+        if (pick) {
+            select.value = pick.uid;
+            hidden.value = pick.name;
+        } else if (savedName) {
+            const opt = document.createElement('option');
+            opt.value = '__saved';
+            opt.textContent = savedName + ' (saved)';
+            select.appendChild(opt);
+            select.value = '__saved';
+        } else {
+            select.value = '';
+        }
+    }
+
+    function refreshHotelBookingPax() {
+        document.querySelectorAll('.line-card[data-type="hotel"]').forEach(fillHotelBookingPax);
+    }
+
+    function onHotelBookingPaxChange(select) {
+        const card = select.closest('.line-card');
+        card.dataset.bookingTouched = '1';
+        if (select.value === '__saved') return;
+        const pax = visaPaxList().find(p => p.uid === select.value);
+        card.querySelector('.hotel-booking-name').value = pax ? pax.name : '';
     }
 
     function onTemplateChange(select) {
@@ -1496,17 +1561,10 @@
             }
             rooms.forEach(r => addHotelRoomRow(card, r));
 
-            // Client fix: Booking Name auto-picks up the Customer selected
-            // in General Information — only default it on a brand-new
-            // line (nothing saved yet); an existing saved line keeps
-            // whatever name was actually booked under, already set above
-            // by the generic [detail][...] loop.
-            if (!detail.booking_name) {
-                const bookingNameEl = card.querySelector('.hotel-booking-name');
-                const customerSelect = document.querySelector('select[name="customer_id"]');
-                const label = customerSelect?.selectedOptions[0]?.textContent.trim();
-                if (bookingNameEl && label && label !== 'Select Customer') bookingNameEl.value = label;
-            }
+            // Client fix: Booking Name = one passenger from General
+            // Information (a saved line keeps the name it was booked under,
+            // already put in the hidden field by the generic [detail] loop).
+            fillHotelBookingPax(card);
         }
 
         if (type === 'transport') {
@@ -1660,26 +1718,14 @@
             }
         });
 
-        // Client fix: Hotel's Booking Name auto-picks up the Customer
-        // selected in General Information — re-synced into every current
-        // Hotel line whenever the Customer changes (staff can still edit
-        // any individual line's Booking Name afterward).
-        const customerSelect = document.querySelector('select[name="customer_id"]');
-        if (customerSelect) {
-            customerSelect.addEventListener('change', function () {
-                const label = this.selectedOptions[0] ? this.selectedOptions[0].textContent.trim() : '';
-                if (!label || label === 'Select Customer') return;
-                document.querySelectorAll('.hotel-booking-name').forEach(el => { el.value = label; });
-            });
-        }
-
-        // Visa tab: keep the Passenger grid in step with the General
-        // Information passengers table (typing a name, changing a type,
-        // adding or removing a passenger).
+        // Visa tab Passenger grid and Hotel Booking Name both follow the
+        // General Information passengers table (typing a name, changing a
+        // type, adding or removing a passenger).
         const paxTbody = document.querySelector('#paxTable tbody');
         if (paxTbody) {
-            ['input', 'change'].forEach(evt => paxTbody.addEventListener(evt, refreshVisaPaxRows));
-            new MutationObserver(refreshVisaPaxRows).observe(paxTbody, { childList: true });
+            const syncPax = () => { refreshVisaPaxRows(); refreshHotelBookingPax(); };
+            ['input', 'change'].forEach(evt => paxTbody.addEventListener(evt, syncPax));
+            new MutationObserver(syncPax).observe(paxTbody, { childList: true });
         }
 
         recalcTotals();
@@ -1689,4 +1735,3 @@
 @if(isset($activeTabs['ticket']))
 @include('travel-invoices._ticket_tab_script')
 @endif
-
