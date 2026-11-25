@@ -119,4 +119,22 @@ class TourInvoiceHotelRoomsTest extends TestCase
         $this->assertEquals(9000, (float) $line->receivable_f_amount);
         $this->assertEquals(7000, (float) $line->payable_f_amount);
     }
+
+    public function test_transport_line_saves_booking_name_and_remarks(): void
+    {
+        $this->store([[
+            'service_type' => 'transport',
+            'supplier_id' => $this->supplier->id,
+            'currency' => 'PKR',
+            'description' => 'Airport pickup 3am',
+            'receivable_f_amount' => 500, 'payable_f_amount' => 400,
+            'detail' => ['booking_name' => 'Sara Khan', 'receivable_exchange_rate' => 1, 'payable_exchange_rate' => 1],
+        ]])->assertOk();
+
+        $invoice = TravelInvoice::with('serviceLines.transportDetail')->latest('id')->firstOrFail();
+        $line = $invoice->serviceLines->first();
+        $this->assertSame('Airport pickup 3am', $line->description);
+        $this->assertSame('Sara Khan', $line->transportDetail->booking_name);
+        $this->get(route('tour_invoices.show', $invoice->id))->assertOk()->assertSee('Airport pickup 3am')->assertSee('Sara Khan');
+    }
 }

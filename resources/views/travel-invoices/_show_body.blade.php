@@ -124,7 +124,7 @@
                                 <th>Supplier</th>
                                 @if($type === 'ticket')<th>PNR</th><th>Airline</th><th>Sector</th><th>Ticket No</th>@endif
                                 @if($type === 'hotel')<th>Hotel</th><th>Room</th><th>Check-in</th><th>Check-out</th><th>Nights</th>@endif
-                                @if($type === 'transport')<th>Vehicle</th><th>Sector</th>@endif
+                                @if($type === 'transport')<th>Vehicle</th><th>Sector</th><th>Booking Name</th><th>Remarks</th>@endif
                                 @if($type === 'visa')<th>Visa Type</th><th>Apply Date</th><th>Expiry Date</th>@endif
                                 @if($type === 'other')<th>Service</th><th>Qty</th>@endif
                                 <th>Currency</th><th>Receivable</th><th>Payable</th><th>Charges</th><th>Income</th>
@@ -169,6 +169,8 @@
                                     @php($vehicleSectors = $transportVehicles->map(fn ($v) => $v->sector)->filter()->values())
                                     <td>{{ $vehicleNames->isNotEmpty() ? $vehicleNames->implode(', ') : ($line->transportDetail->vehicle->name ?? '—') }}</td>
                                     <td>{{ $vehicleSectors->isNotEmpty() ? $vehicleSectors->implode(', ') : ($line->transportDetail->sector ?? '—') }}</td>
+                                    <td>{{ $line->transportDetail->booking_name ?? '—' }}</td>
+                                    <td>{{ $line->description ?: '—' }}</td>
                                 @endif
                                 @if($type === 'visa')
                                     <td>{{ $line->visaDetail->visaType->name ?? '—' }}</td>

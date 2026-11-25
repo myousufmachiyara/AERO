@@ -335,10 +335,10 @@
                     <label class="form-label">Booking Name <small class="field-note">(from Passengers)</small></label>
                     {{-- One passenger from General Information → Passengers; the
                          chosen name is what's saved (booking_name stays plain text). --}}
-                    <select class="form-control hotel-booking-pax" onchange="onHotelBookingPaxChange(this)">
+                    <select class="form-control booking-pax-select" onchange="onBookingPaxChange(this)">
                         <option value="">— Select Passenger —</option>
                     </select>
-                    <input type="hidden" name="lines[__IDX__][detail][booking_name]" class="hotel-booking-name">
+                    <input type="hidden" name="lines[__IDX__][detail][booking_name]" class="booking-pax-name">
                 </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Currency <small class="text-muted">(invoice)</small></label>
@@ -573,8 +573,12 @@
                     </select>
                 </div>
                 <div class="col-md-3 mb-2">
-                    <label class="form-label">Booking Name</label>
-                    <input type="text" name="lines[__IDX__][detail][booking_name]" class="form-control">
+                    <label class="form-label">Booking Name <small class="field-note">(from Passengers)</small></label>
+                    {{-- Same as Hotel: one passenger from General Information → Passengers; the name is what's saved. --}}
+                    <select class="form-control booking-pax-select" onchange="onBookingPaxChange(this)">
+                        <option value="">— Select Passenger —</option>
+                    </select>
+                    <input type="hidden" name="lines[__IDX__][detail][booking_name]" class="booking-pax-name">
                 </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label">Currency <small class="text-muted">(invoice)</small></label>
@@ -594,6 +598,13 @@
                         <option value="{{ $val }}">{{ $lbl }}</option>
                         @endforeach
                     </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12 mb-2">
+                    <label class="form-label">Remarks</label>
+                    <input type="text" name="lines[__IDX__][description]" class="form-control" maxlength="255" placeholder="Notes for this transport line">
                 </div>
             </div>
 
@@ -1361,15 +1372,15 @@
         return row;
     }
 
-    // ---- Hotel: Booking Name = one passenger from General Information ----
+    // ---- Hotel + Transport: Booking Name = one passenger from General Information ----
     // Options are keyed by the passenger row (so renaming a passenger keeps
-    // the pick); the hidden .hotel-booking-name holds the name that's saved.
+    // the pick); the hidden .booking-pax-name holds the name that's saved.
     // A new line pre-selects the first named passenger until the user picks.
     // A saved name that's no longer in the list (e.g. older lines that used
     // the Customer's name) is kept as a "(saved)" option.
-    function fillHotelBookingPax(card) {
-        const select = card.querySelector('.hotel-booking-pax');
-        const hidden = card.querySelector('.hotel-booking-name');
+    function fillBookingPax(card) {
+        const select = card.querySelector('.booking-pax-select');
+        const hidden = card.querySelector('.booking-pax-name');
         if (!select || !hidden) return;
 
         const list = visaPaxList().filter(p => p.name !== '');
@@ -1408,16 +1419,16 @@
         }
     }
 
-    function refreshHotelBookingPax() {
-        document.querySelectorAll('.line-card[data-type="hotel"]').forEach(fillHotelBookingPax);
+    function refreshBookingPax() {
+        document.querySelectorAll('.line-card').forEach(card => { if (card.querySelector('.booking-pax-select')) fillBookingPax(card); });
     }
 
-    function onHotelBookingPaxChange(select) {
+    function onBookingPaxChange(select) {
         const card = select.closest('.line-card');
         card.dataset.bookingTouched = '1';
         if (select.value === '__saved') return;
         const pax = visaPaxList().find(p => p.uid === select.value);
-        card.querySelector('.hotel-booking-name').value = pax ? pax.name : '';
+        card.querySelector('.booking-pax-name').value = pax ? pax.name : '';
     }
 
     function onTemplateChange(select) {
@@ -1564,7 +1575,7 @@
             // Client fix: Booking Name = one passenger from General
             // Information (a saved line keeps the name it was booked under,
             // already put in the hidden field by the generic [detail] loop).
-            fillHotelBookingPax(card);
+            fillBookingPax(card);
         }
 
         if (type === 'transport') {
@@ -1577,6 +1588,9 @@
                 vehicles = [{ vehicle_id: detail.vehicle_id, sector: detail.sector }];
             }
             vehicles.forEach(v => addTransportVehicleRow(card, v));
+
+            // Booking Name = one passenger from General Information (same as Hotel).
+            fillBookingPax(card);
         }
 
         if (window.jQuery) $(card).find('.select2-js').select2({dropdownParent: card});
@@ -1723,7 +1737,7 @@
         // type, adding or removing a passenger).
         const paxTbody = document.querySelector('#paxTable tbody');
         if (paxTbody) {
-            const syncPax = () => { refreshVisaPaxRows(); refreshHotelBookingPax(); };
+            const syncPax = () => { refreshVisaPaxRows(); refreshBookingPax(); };
             ['input', 'change'].forEach(evt => paxTbody.addEventListener(evt, syncPax));
             new MutationObserver(syncPax).observe(paxTbody, { childList: true });
         }
