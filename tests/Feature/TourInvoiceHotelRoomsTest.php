@@ -137,4 +137,30 @@ class TourInvoiceHotelRoomsTest extends TestCase
         $this->assertSame('Sara Khan', $line->transportDetail->booking_name);
         $this->get(route('tour_invoices.show', $invoice->id))->assertOk()->assertSee('Airport pickup 3am')->assertSee('Sara Khan');
     }
+
+    public function test_other_service_line_saves_booking_name_travel_date_and_remarks(): void
+    {
+        $this->store([[
+            'service_type' => 'other',
+            'supplier_id' => $this->supplier->id,
+            'currency' => 'PKR', 'exchange_rate' => 1,
+            'description' => 'Ziyarat tour, morning slot',
+            'receivable_f_amount' => 300, 'payable_f_amount' => 200,
+            'detail' => ['qty' => 2, 'booking_name' => 'Ali Khan', 'travel_date' => '2026-12-05'],
+        ]])->assertOk();
+
+        $invoice = TravelInvoice::with('serviceLines.otherDetail')->latest('id')->firstOrFail();
+        $line = $invoice->serviceLines->first();
+        $this->assertSame('Ziyarat tour, morning slot', $line->description);
+        $this->assertSame('Ali Khan', $line->otherDetail->booking_name);
+        $this->assertSame('2026-12-05', $line->otherDetail->travel_date->format('Y-m-d'));
+        $this->get(route('tour_invoices.show', $invoice->id))->assertOk()
+            ->assertSee('Ziyarat tour, morning slot')->assertSee('Ali Khan')->assertSee('05/12/2026');
+        $this->get(route('tour_invoices.edit', $invoice->id))->assertOk();
+
+        $this->store([[
+            'service_type' => 'other', 'currency' => 'PKR', 'exchange_rate' => 1,
+            'detail' => ['travel_date' => 'not-a-date'],
+        ]])->assertStatus(422)->assertJsonValidationErrors(['lines.0.detail.travel_date']);
+    }
 }

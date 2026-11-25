@@ -6,7 +6,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class InvoiceOtherDetail extends Model
 {
-    protected $fillable = ['service_line_id', 'service_id', 'qty'];
+    protected $fillable = ['service_line_id', 'service_id', 'qty', 'booking_name', 'travel_date'];
+
+    protected $casts = ['travel_date' => 'date'];
 
     public function serviceLine()
     {

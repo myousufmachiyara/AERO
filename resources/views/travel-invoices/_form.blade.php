@@ -87,7 +87,8 @@
                     break;
                 case 'other':
                     if ($line->otherDetail) {
-                        $detail = $line->otherDetail->only(['service_id', 'qty']);
+                        $detail = $line->otherDetail->only(['service_id', 'qty', 'booking_name']);
+                        $detail['travel_date'] = optional($line->otherDetail->travel_date)->format('Y-m-d');
                     }
                     break;
             }
@@ -996,6 +997,24 @@
                 </div>
                 <div class="col-md-2 mb-2"><label class="form-label">Qty</label><input type="number" name="lines[__IDX__][detail][qty]" class="form-control" value="1"></div>
             </div>
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label class="form-label">Booking Name <small class="field-note">(from Passengers)</small></label>
+                    {{-- Same as Hotel/Transport: one passenger from General Information → Passengers; the name is what's saved. --}}
+                    <select class="form-control booking-pax-select" onchange="onBookingPaxChange(this)">
+                        <option value="">— Select Passenger —</option>
+                    </select>
+                    <input type="hidden" name="lines[__IDX__][detail][booking_name]" class="booking-pax-name">
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label">Travel Date</label>
+                    <input type="date" name="lines[__IDX__][detail][travel_date]" class="form-control">
+                </div>
+                <div class="col-md-6 mb-2">
+                    <label class="form-label">Remarks</label>
+                    <input type="text" name="lines[__IDX__][description]" class="form-control" maxlength="255" placeholder="Notes for this service">
+                </div>
+            </div>
             @endif
 
             <div class="mb-1">
@@ -1590,6 +1609,11 @@
             vehicles.forEach(v => addTransportVehicleRow(card, v));
 
             // Booking Name = one passenger from General Information (same as Hotel).
+            fillBookingPax(card);
+        }
+
+        if (type === 'other') {
+            // Booking Name = one passenger from General Information (same as Hotel/Transport).
             fillBookingPax(card);
         }
 

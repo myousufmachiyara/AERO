@@ -318,6 +318,8 @@ class ServiceLineWriter
                     'service_line_id' => $line->id,
                     'service_id' => $detail['service_id'] ?? null,
                     'qty' => $detail['qty'] ?? 1,
+                    'booking_name' => filled($detail['booking_name'] ?? null) ? $detail['booking_name'] : null,
+                    'travel_date' => filled($detail['travel_date'] ?? null) ? $detail['travel_date'] : null,
                 ]);
                 break;
         }

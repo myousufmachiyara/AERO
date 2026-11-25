@@ -441,6 +441,7 @@ abstract class BaseTravelInvoiceController extends Controller
             'lines.*.detail.reference_no' => 'nullable|string|max:100',
             'lines.*.detail.service_id' => 'nullable|exists:services,id',
             'lines.*.detail.qty' => 'nullable|integer|min:1',
+            'lines.*.detail.travel_date' => 'nullable|date',
         ], [], $this->ticketAttributeNames($request));
     }
 

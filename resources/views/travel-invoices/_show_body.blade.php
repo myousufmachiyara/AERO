@@ -126,7 +126,7 @@
                                 @if($type === 'hotel')<th>Hotel</th><th>Room</th><th>Check-in</th><th>Check-out</th><th>Nights</th>@endif
                                 @if($type === 'transport')<th>Vehicle</th><th>Sector</th><th>Booking Name</th><th>Remarks</th>@endif
                                 @if($type === 'visa')<th>Visa Type</th><th>Apply Date</th><th>Expiry Date</th>@endif
-                                @if($type === 'other')<th>Service</th><th>Qty</th>@endif
+                                @if($type === 'other')<th>Service</th><th>Qty</th><th>Booking Name</th><th>Travel Date</th><th>Remarks</th>@endif
                                 <th>Currency</th><th>Receivable</th><th>Payable</th><th>Charges</th><th>Income</th>
                             </tr>
                         </thead>
@@ -180,6 +180,9 @@
                                 @if($type === 'other')
                                     <td>{{ $line->otherDetail->service->name ?? '—' }}</td>
                                     <td>{{ $line->otherDetail->qty ?? '—' }}</td>
+                                    <td>{{ $line->otherDetail->booking_name ?? '—' }}</td>
+                                    <td>{{ optional($line->otherDetail?->travel_date)->format('d/m/Y') ?? '—' }}</td>
+                                    <td>{{ $line->description ?: '—' }}</td>
                                 @endif
                                 <td>{{ $line->currency }}</td>
                                 <td>{{ number_format($line->receivable_l_amount, 2) }}</td>
