@@ -53,6 +53,7 @@
                             'room_view_id' => $r->room_view_id,
                             'qty' => $r->qty,
                             'rate' => (float) $r->rate,
+                            'cost' => (float) $r->cost,
                         ])->values();
                     }
                     break;
@@ -370,10 +371,34 @@
 
             <hr class="my-2">
             <h4 class="fw-bold text-uppercase text-dark mb-2">Room Details</h4>
-            <table class="table table-bordered table-sm mini-table hotel-rooms-table">
-                <thead><tr><th>Room Type</th><th>Room View</th><th width="12%">No. of Room</th><th width="16%">Rate</th><th width="16%">Total Amount</th><th width="36"></th></tr></thead>
+            {{-- Client fix: Rate (to customer) and Cost (to hotel) are per room per night.
+                 Single Room Total = Rate × Nights, Rooms Total = Single Room Total × No. of Rooms
+                 (same for Cost). Σ Rooms Total → Receivable, Σ Rooms Cost → Payable. --}}
+            <div class="table-responsive">
+            <table class="table table-bordered table-sm mini-table hotel-rooms-table align-middle">
+                <thead>
+                    <tr>
+                        <th rowspan="2">Room Type</th><th rowspan="2">Room View</th><th rowspan="2" width="8%">No. of Rooms</th>
+                        <th colspan="3" class="text-center table-success">Customer (Receivable)</th>
+                        <th colspan="3" class="text-center table-warning">Hotel (Payable)</th>
+                        <th rowspan="2" width="36"></th>
+                    </tr>
+                    <tr>
+                        <th width="9%">Rate / Night</th><th width="9%">Single Room Total</th><th width="10%">Rooms Total</th>
+                        <th width="9%">Cost / Night</th><th width="9%">Single Room Cost</th><th width="10%">Rooms Cost</th>
+                    </tr>
+                </thead>
                 <tbody></tbody>
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="3" class="text-end">Total <small class="text-muted fw-normal">(<span class="hotel-rooms-nights-label">0</span> night(s))</small></td>
+                        <td></td><td></td><td class="text-end hotel-rooms-sum-total">0.00</td>
+                        <td></td><td></td><td class="text-end hotel-rooms-sum-cost">0.00</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
             </table>
+            </div>
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addHotelRoomRow(this.closest('.line-card'))">+ Add Room</button>
             <template class="hotel-room-tpl">
                 <tr>
@@ -388,10 +413,14 @@
                             @foreach($roomViews as $rv)<option value="{{ $rv->id }}">{{ $rv->name }}</option>@endforeach
                         </select>
                     </td>
-                    <td><input type="number" min="0" name="lines[__IDX__][detail][rooms][__RIDX__][qty]" class="form-control form-control-sm hotel-room-row-qty" value="1" oninput="recalcHotelRoomRow(this.closest('tr'))"></td>
-                    <td><input type="number" step="any" min="0" name="lines[__IDX__][detail][rooms][__RIDX__][rate]" class="form-control form-control-sm hotel-room-row-rate" value="0" oninput="recalcHotelRoomRow(this.closest('tr'))"></td>
-                    <td><input type="number" step="any" name="lines[__IDX__][detail][rooms][__RIDX__][total_amount]" class="form-control form-control-sm hotel-room-row-total" value="0" readonly></td>
-                    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove();"><i class="fas fa-times"></i></button></td>
+                    <td><input type="number" min="0" name="lines[__IDX__][detail][rooms][__RIDX__][qty]" class="form-control form-control-sm hotel-room-row-qty" value="1" oninput="recalcHotelRooms(this.closest('.line-card'), true)"></td>
+                    <td><input type="number" step="any" min="0" name="lines[__IDX__][detail][rooms][__RIDX__][rate]" class="form-control form-control-sm hotel-room-row-rate" value="0" oninput="recalcHotelRooms(this.closest('.line-card'), true)"></td>
+                    <td><input type="text" class="form-control form-control-sm text-end hotel-room-row-single" value="0.00" readonly tabindex="-1"></td>
+                    <td><input type="number" step="any" name="lines[__IDX__][detail][rooms][__RIDX__][total_amount]" class="form-control form-control-sm text-end hotel-room-row-total" value="0" readonly tabindex="-1"></td>
+                    <td><input type="number" step="any" min="0" name="lines[__IDX__][detail][rooms][__RIDX__][cost]" class="form-control form-control-sm hotel-room-row-cost" value="0" oninput="recalcHotelRooms(this.closest('.line-card'), true)"></td>
+                    <td><input type="text" class="form-control form-control-sm text-end hotel-room-row-single-cost" value="0.00" readonly tabindex="-1"></td>
+                    <td><input type="number" step="any" name="lines[__IDX__][detail][rooms][__RIDX__][total_cost]" class="form-control form-control-sm text-end hotel-room-row-total-cost" value="0" readonly tabindex="-1"></td>
+                    <td><button type="button" class="btn btn-danger btn-sm" onclick="const c = this.closest('.line-card'); this.closest('tr').remove(); recalcHotelRooms(c, true);"><i class="fas fa-times"></i></button></td>
                 </tr>
             </template>
 
@@ -401,7 +430,7 @@
                     <h6 class="text-uppercase text-muted small fw-bold mb-2">3. Receivables</h6>
                     <div class="row">
                         <div class="col-md-4 mb-2">
-                            <label class="form-label">Receivable (F)</label>
+                            <label class="form-label">Receivable (F) <small class="field-note hotel-auto-note">(auto: Σ Rooms Total)</small></label>
                             <input type="number" step="any" name="lines[__IDX__][receivable_f_amount]" class="form-control line-recv line-field" value="0" oninput="recalcHotelFinance(this.closest('.line-card'))">
                         </div>
                         <div class="col-md-4 mb-2">
@@ -421,7 +450,7 @@
                     <h6 class="text-uppercase text-muted small fw-bold mb-2">4. Payables</h6>
                     <div class="row">
                         <div class="col-md-4 mb-2">
-                            <label class="form-label">Payable (F)</label>
+                            <label class="form-label">Payable (F) <small class="field-note hotel-auto-note">(auto: Σ Rooms Cost)</small></label>
                             <input type="number" step="any" name="lines[__IDX__][payable_f_amount]" class="form-control line-pay line-field" value="0" oninput="recalcHotelFinance(this.closest('.line-card'))">
                         </div>
                         <div class="col-md-4 mb-2">
@@ -1054,13 +1083,58 @@
             nights = Math.round((outDate - inDate) / 86400000);
         }
         nightsEl.value = nights;
+        recalcHotelRooms(card, true);
     }
 
-    function recalcHotelRoomRow(row) {
-        const qty = parseFloat(row.querySelector('.hotel-room-row-qty')?.value) || 0;
-        const rate = parseFloat(row.querySelector('.hotel-room-row-rate')?.value) || 0;
-        const totalField = row.querySelector('.hotel-room-row-total');
-        if (totalField) totalField.value = (qty * rate).toFixed(2);
+    // Client fix — Room Details, per row (Rate/Cost are per room per night):
+    //   Single Room Total = Rate × Nights,  Rooms Total = Single Room Total × No. of Rooms
+    //   Single Room Cost  = Cost × Nights,  Rooms Cost  = Single Room Cost × No. of Rooms
+    // Σ Rooms Total → Receivable (F), Σ Rooms Cost → Payable (F). Same math
+    // as InvoiceHotelRoom::totalsFor() on the server.
+    //
+    // While any room has a Rate (or Cost) the Receivable (or Payable) is
+    // calculated and locked. An older line whose rooms carry no rate/cost
+    // (priced by hand before this fix) keeps its typed amount, editable.
+    // `userEdited`: if the user removes the last rate/cost, the auto amount
+    // drops back to 0 rather than leaving a stale total behind.
+    function recalcHotelRooms(card, userEdited) {
+        if (!card) return;
+        const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
+        const nights = parseFloat(card.querySelector('.hotel-nights')?.value) || 0;
+        let sumTotal = 0, sumCost = 0, hasRate = false, hasCost = false;
+
+        card.querySelectorAll('.hotel-rooms-table tbody tr').forEach(row => {
+            const qty = parseFloat(row.querySelector('.hotel-room-row-qty')?.value) || 0;
+            const rate = parseFloat(row.querySelector('.hotel-room-row-rate')?.value) || 0;
+            const cost = parseFloat(row.querySelector('.hotel-room-row-cost')?.value) || 0;
+            const single = r2(rate * nights), singleCost = r2(cost * nights);
+            const total = r2(single * qty), totalCost = r2(singleCost * qty);
+            row.querySelector('.hotel-room-row-single').value = single.toFixed(2);
+            row.querySelector('.hotel-room-row-total').value = total.toFixed(2);
+            row.querySelector('.hotel-room-row-single-cost').value = singleCost.toFixed(2);
+            row.querySelector('.hotel-room-row-total-cost').value = totalCost.toFixed(2);
+            sumTotal += total; sumCost += totalCost;
+            hasRate = hasRate || rate > 0; hasCost = hasCost || cost > 0;
+        });
+
+        card.querySelector('.hotel-rooms-sum-total').textContent = r2(sumTotal).toFixed(2);
+        card.querySelector('.hotel-rooms-sum-cost').textContent = r2(sumCost).toFixed(2);
+        card.querySelector('.hotel-rooms-nights-label').textContent = nights;
+
+        const recvEl = card.querySelector('.line-recv');
+        const payEl = card.querySelector('.line-pay');
+        if (hasRate || (userEdited && card.dataset.recvAuto === '1')) recvEl.value = r2(sumTotal).toFixed(2);
+        if (hasCost || (userEdited && card.dataset.payAuto === '1')) payEl.value = r2(sumCost).toFixed(2);
+        card.dataset.recvAuto = hasRate ? '1' : '0';
+        card.dataset.payAuto = hasCost ? '1' : '0';
+        recvEl.readOnly = hasRate;
+        payEl.readOnly = hasCost;
+        recvEl.style.backgroundColor = hasRate ? '#eef1f4' : '';
+        payEl.style.backgroundColor = hasCost ? '#eef1f4' : '';
+        recvEl.title = hasRate ? 'Calculated from Room Details (Σ Rooms Total)' : '';
+        payEl.title = hasCost ? 'Calculated from Room Details (Σ Rooms Cost)' : '';
+
+        recalcHotelFinance(card);
     }
 
     // Client fix: "break Room Details into a grid... same as charges
@@ -1084,7 +1158,8 @@
         if (data.room_view_id) row.querySelector('.hotel-room-view-select').value = data.room_view_id;
         row.querySelector('.hotel-room-row-qty').value = data.qty ?? 1;
         row.querySelector('.hotel-room-row-rate').value = data.rate ?? 0;
-        recalcHotelRoomRow(row);
+        row.querySelector('.hotel-room-row-cost').value = data.cost ?? 0;
+        recalcHotelRooms(card, false);
 
         if (window.jQuery) $(row).find('select').select2({dropdownParent: card});
         return row;

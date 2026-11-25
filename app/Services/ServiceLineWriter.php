@@ -58,6 +58,14 @@ class ServiceLineWriter
                 $row['charges'] = [];
             }
 
+            // Hotel tab (client fix): Receivable = Σ Rooms Total and Payable =
+            // Σ Rooms Cost from Room Details (rate/cost per night × nights ×
+            // rooms). Only applied when the grid actually carries a rate /
+            // cost, so older lines priced by hand keep their amounts.
+            if ($row['service_type'] === 'hotel' && is_array($row['detail'] ?? null) && !empty($row['detail']['rooms'])) {
+                $row = $this->priceHotelRooms($row);
+            }
+
             $line = new ServiceLine([
                 'service_type' => $row['service_type'],
                 'supplier_id' => $row['supplier_id'] ?? null,
@@ -223,7 +231,7 @@ class ServiceLineWriter
                     'room_view_id' => $detail['room_view_id'] ?? null,
                     'check_in' => $detail['check_in'] ?? null,
                     'check_out' => $detail['check_out'] ?? null,
-                    'nights' => $detail['nights'] ?? 0,
+                    'nights' => self::hotelNights($detail),
                     'room_qty' => $detail['room_qty'] ?? 1,
                     'extra_bed_qty' => $detail['extra_bed_qty'] ?? 0,
                     'booking_name' => $detail['booking_name'] ?? null,
@@ -236,16 +244,21 @@ class ServiceLineWriter
                 ]);
 
                 foreach (array_values($detail['rooms'] ?? []) as $j => $room) {
-                    if (empty($room['hotel_room_id']) && empty($room['room_view_id']) && empty($room['qty']) && empty($room['rate'])) {
+                    if (empty($room['hotel_room_id']) && empty($room['room_view_id']) && empty($room['qty']) && empty($room['rate']) && empty($room['cost'])) {
                         continue;
                     }
+                    [$roomsTotal, $roomsCost] = InvoiceHotelRoom::totalsFor(
+                        $room['qty'] ?? 1, $room['rate'] ?? 0, $room['cost'] ?? 0, $hotelDetail->nights
+                    );
                     InvoiceHotelRoom::create([
                         'invoice_hotel_detail_id' => $hotelDetail->id,
                         'hotel_room_id' => $room['hotel_room_id'] ?? null,
                         'room_view_id' => $room['room_view_id'] ?? null,
                         'qty' => $room['qty'] ?? 1,
                         'rate' => $room['rate'] ?? 0,
-                        'total_amount' => $room['total_amount'] ?? 0,
+                        'cost' => $room['cost'] ?? 0,
+                        'total_amount' => $roomsTotal,
+                        'total_cost' => $roomsCost,
                         'sort_order' => $j,
                     ]);
                 }
@@ -308,5 +321,45 @@ class ServiceLineWriter
                 ]);
                 break;
         }
+    }
+
+    /** Nights from Check-in/Check-out when both are given (same as the form), else the sent value. */
+    public static function hotelNights(array $detail): int
+    {
+        if (!empty($detail['check_in']) && !empty($detail['check_out'])) {
+            $in = \Illuminate\Support\Carbon::parse($detail['check_in'])->startOfDay();
+            $out = \Illuminate\Support\Carbon::parse($detail['check_out'])->startOfDay();
+
+            return $out->greaterThan($in) ? (int) $in->diffInDays($out) : 0;
+        }
+
+        return (int) ($detail['nights'] ?? 0);
+    }
+
+    /** Receivable (F) = Σ Rooms Total, Payable (F) = Σ Rooms Cost, when the grid has a rate / cost. */
+    protected function priceHotelRooms(array $row): array
+    {
+        $nights = self::hotelNights($row['detail']);
+        $receivable = 0.0;
+        $payable = 0.0;
+        $hasRate = false;
+        $hasCost = false;
+
+        foreach ($row['detail']['rooms'] as $room) {
+            [$total, $cost] = InvoiceHotelRoom::totalsFor($room['qty'] ?? 1, $room['rate'] ?? 0, $room['cost'] ?? 0, $nights);
+            $receivable += $total;
+            $payable += $cost;
+            $hasRate = $hasRate || (float) ($room['rate'] ?? 0) > 0;
+            $hasCost = $hasCost || (float) ($room['cost'] ?? 0) > 0;
+        }
+
+        if ($hasRate) {
+            $row['receivable_f_amount'] = round($receivable, 2);
+        }
+        if ($hasCost) {
+            $row['payable_f_amount'] = round($payable, 2);
+        }
+
+        return $row;
     }
 }

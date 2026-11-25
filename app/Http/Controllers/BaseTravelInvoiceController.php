@@ -422,6 +422,7 @@ abstract class BaseTravelInvoiceController extends Controller
             'lines.*.detail.rooms.*.room_view_id' => 'nullable|exists:room_views,id',
             'lines.*.detail.rooms.*.qty' => 'nullable|integer|min:0',
             'lines.*.detail.rooms.*.rate' => 'nullable|numeric|min:0',
+            'lines.*.detail.rooms.*.cost' => 'nullable|numeric|min:0',
             'lines.*.detail.rooms.*.total_amount' => 'nullable|numeric|min:0',
 
             'lines.*.detail.vehicle_id' => 'nullable|exists:vehicles,id',

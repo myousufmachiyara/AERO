@@ -145,7 +145,18 @@
                                     <td>
                                         {{-- Room Details is now a grid (a booking can cover more than one room type) — prefer it, falling back to the old single-room field for lines saved before this fix. --}}
                                         @php($roomNames = $line->hotelDetail ? $line->hotelDetail->rooms->map(fn ($r) => optional($r->hotelRoom)->room_type)->filter()->values() : collect())
+                                        @if($line->hotelDetail && $line->hotelDetail->rooms->contains(fn ($r) => (float) $r->rate > 0 || (float) $r->cost > 0))
+                                            @foreach($line->hotelDetail->rooms as $r)
+                                            <div class="small text-nowrap">
+                                                <strong>{{ optional($r->hotelRoom)->room_type ?? 'Room' }}</strong>{{ $r->roomView ? ' (' . $r->roomView->name . ')' : '' }}
+                                                × {{ $r->qty }} · {{ $line->hotelDetail->nights }} night(s)<br>
+                                                <span class="text-success">Rate {{ number_format($r->rate, 2) }} → {{ number_format($r->total_amount, 2) }}</span>
+                                                · <span class="text-danger">Cost {{ number_format($r->cost, 2) }} → {{ number_format($r->total_cost, 2) }}</span>
+                                            </div>
+                                            @endforeach
+                                        @else
                                         {{ $roomNames->isNotEmpty() ? $roomNames->implode(', ') : ($line->hotelDetail->hotelRoom->room_type ?? '—') }}
+                                        @endif
                                     </td>
                                     <td>{{ optional($line->hotelDetail?->check_in)->format('d/m/Y') ?? '—' }}</td>
                                     <td>{{ optional($line->hotelDetail?->check_out)->format('d/m/Y') ?? '—' }}</td>
