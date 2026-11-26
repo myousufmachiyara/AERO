@@ -32,6 +32,9 @@
                    href="#{{ $key }}" role="tab">{{ $label }}</a>
             </li>
         @endforeach
+        <li class="nav-item">
+            <a class="nav-link" id="customer_statement-tab" data-bs-toggle="tab" href="#customer_statement" role="tab">Customer Statement</a>
+        </li>
     </ul>
 
     <div class="tab-content mt-3" id="reportTabsContent">
@@ -298,6 +301,8 @@
             </div>
         </div>
         @endforeach
+
+        @include('reports._customer_statement')
 
     </div>
 </div>

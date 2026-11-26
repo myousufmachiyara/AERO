@@ -126,6 +126,9 @@ class InvoiceTicketDetail extends Model
 
         foreach (self::PRICING_FIELDS as $f) {
             $input[$f] = $calc->{$f};
+            if (str_ends_with($f, '_input_mode') && !in_array($input[$f], TicketSaleInvoiceLine::INPUT_MODES, true)) {
+                $input[$f] = TicketSaleInvoiceLine::INPUT_MODE_PERCENT; // not sent → the column's default
+            }
         }
         $input['psf_basis'] = $calc->psf_basis;
         $input['supplier_net'] = $calc->supplierNet();

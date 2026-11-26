@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\ChartOfAccounts;
+use App\Models\Customer;
+use App\Services\CustomerStatementService;
 use App\Models\Voucher;
 use Carbon\Carbon;
 use DB;
@@ -60,7 +62,52 @@ class AccountsReportController extends Controller
             'cash_flow'        => $this->cashFlow($from, $to),
         ];
 
-        return view('reports.accounts_reports', compact('reports', 'from', 'to', 'chartOfAccounts'));
+        // Customer Statement tab — only built once a customer is picked.
+        $customers = Customer::orderBy('name')->get(['id', 'name', 'code']);
+        $statement = null;
+        if ($request->filled('customer_id') && ($customer = Customer::find($request->customer_id))) {
+            $statement = app(CustomerStatementService::class)->build($customer, $from, $to);
+        }
+
+        return view('reports.accounts_reports', compact('reports', 'from', 'to', 'chartOfAccounts', 'customers', 'statement'));
+    }
+
+    /**
+     * Customer Account Statement as a PDF, laid out like the client's
+     * sample: company header, customer block, Sale Invoices by service,
+     * Refund Invoices, Vouchers, then the closing summary.
+     */
+    public function customerStatementPdf(Request $request, CustomerStatementService $service)
+    {
+        $validated = $request->validate([
+            'customer_id' => 'required|exists:customers,id',
+            'from_date' => 'required|date',
+            'to_date' => 'required|date|after_or_equal:from_date',
+        ]);
+
+        $statement = $service->build(Customer::findOrFail($validated['customer_id']), $validated['from_date'], $validated['to_date']);
+
+        $pdf = new \App\Support\CustomerStatementPdf('P', 'mm', 'A4', true, 'UTF-8', false);
+        $pdf->statement = $statement;
+        $pdf->SetCreator(config('app.name', 'AERO'));
+        $pdf->SetAuthor(config('travel.company_name'));
+        $pdf->SetTitle('Customer Account Statement — ' . $statement['customer']->name);
+        $pdf->SetMargins(8, 30, 8);
+        $pdf->SetHeaderMargin(6);
+        $pdf->SetFooterMargin(12);
+        $pdf->SetAutoPageBreak(true, 18);
+        $pdf->AddPage();
+        $pdf->renderCompanyHeader();
+        $pdf->SetFont('helvetica', '', 7.5);
+        $pdf->writeHTML(view('reports.customer_statement_pdf', ['s' => $statement])->render(), true, false, true, false, '');
+
+        $fileName = 'Statement_' . preg_replace('/[^A-Za-z0-9]+/', '_', $statement['customer']->name)
+            . '_' . $statement['from'] . '_' . $statement['to'] . '.pdf';
+
+        return response($pdf->Output($fileName, 'S'), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $fileName . '"',
+        ]);
     }
 
     // ─────────────────────────────────────────────────────────────

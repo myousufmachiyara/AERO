@@ -133,6 +133,8 @@ Route::middleware(['auth'])->group(function () {
     // Reports (readonly)
     Route::prefix('reports')->name('reports.')->group(function () {
         Route::get('accounts', [AccountsReportController::class, 'accounts'])->name('accounts');
+        Route::get('customer-statement/pdf', [AccountsReportController::class, 'customerStatementPdf'])
+            ->middleware('check.permission:reports.accounts')->name('customer_statement_pdf');
 
         // Travel Agency — Phase 6: Vendor / Sales / Accounting report suites
         Route::get('travel-vendor', [TravelVendorReportController::class, 'index'])
