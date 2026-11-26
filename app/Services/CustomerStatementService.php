@@ -33,9 +33,9 @@ use Illuminate\Support\Collection;
  *     amount given back, so Sale − Refund = what the customer still owes.
  *   - Tour Invoices: every service line of a draft or confirmed invoice
  *     (cancelled ones are left out) at its Receivable in PKR.
- *   - Vouchers: every voucher on the customer's account EXCEPT the ones a
- *     Ticket Sale Invoice posted itself (Post / refund / void entries) —
- *     those are already shown as invoices above.
+ *   - Vouchers: every voucher on the customer's account EXCEPT the ones an
+ *     invoice posted itself (Ticket Sale Post / refund / void entries, Tour
+ *     Invoice Confirm entries) — those are already shown as invoices above.
  *   - Opening balance of the customer's ledger account is the starting point.
  */
 class CustomerStatementService
@@ -330,7 +330,10 @@ class CustomerStatementService
             return collect();
         }
 
-        $invoicePosted = TicketInvoiceLedgerEntry::pluck('voucher_id')->filter()->all();
+        // Vouchers an invoice posted itself are already shown as invoice rows above.
+        $invoicePosted = TicketInvoiceLedgerEntry::pluck('voucher_id')
+            ->merge(\App\Models\TravelInvoiceLedgerEntry::pluck('voucher_id'))
+            ->filter()->all();
 
         $vouchers = Voucher::query()
             ->whereBetween('date', [$from, $to])

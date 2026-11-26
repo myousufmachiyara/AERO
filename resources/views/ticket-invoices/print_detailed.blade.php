@@ -43,7 +43,7 @@
                             <td>{{ number_format($line->tax_amount, 2) }}</td>
                             <td>{{ number_format($line->apt_percent, 2) }}%</td>
                             <td>{{ number_format($line->apt_charges, 2) }}</td>
-                            <td>{{ number_format($line->commission_percent, 2) }}</td>
+                            <td>{{ number_format($line->commission_percent, 2) }}%</td>
                             <td>{{ number_format($line->commission_amount, 2) }}</td>
                             <td>{{ number_format($line->wht_percent, 2) }}%</td>
                             <td>{{ number_format($line->wht_amount, 2) }}</td>

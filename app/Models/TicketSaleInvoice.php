@@ -94,21 +94,25 @@ class TicketSaleInvoice extends Model
         return (float) $this->total_amount;
     }
 
-    /** Sum of each line's effectiveSupplierPayable() — see that method for the approximation used. */
+    /**
+     * Net owed to the airline(s), exactly as the posted vouchers carry it:
+     * Σ (fare + tax + APT, or the supplier deduction on a refund/void)
+     * − Σ (commission − WHT).
+     */
     public function getTotalPayableAttribute(): float
     {
-        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveSupplierPayable()), 2);
+        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveAirlinePayable() - $l->effectiveNetCommission()), 2);
     }
 
     /**
-     * "Income" here is net airline commission (commission − WHT), not
-     * receivable-minus-payable: the fare/tax/apt/PSF the customer pays are
-     * passed through to the supplier at cost, so the agency's actual
-     * revenue on a ticket sale is the commission, not a fare markup.
+     * Agency income = Receivable − net airline payable
+     * = PSF − Discount + Commission − WHT on active tickets (plus the
+     * company's deductions on refunded/voided ones) — the same profit the
+     * ledger shows once the invoice is posted.
      */
     public function getTotalIncomeAttribute(): float
     {
-        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveNetCommission()), 2);
+        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveReceivable() - $l->effectiveAirlinePayable() + $l->effectiveNetCommission()), 2);
     }
 
     /**

@@ -80,6 +80,10 @@ class InvoicePaymentController extends Controller
                 $crAccountId = $cashBankAccountId;
             }
 
+            $invoiceNo = !empty($validated['travel_invoice_id'])
+                ? TravelInvoice::whereKey($validated['travel_invoice_id'])->value('invoice_no')
+                : null;
+
             $voucher = Voucher::create([
                 'voucher_type' => $validated['direction'] === 'receipt' ? 'receipt' : 'payment',
                 'date' => $validated['payment_date'],
@@ -89,8 +93,8 @@ class InvoicePaymentController extends Controller
                 'reference' => $validated['reference'] ?? null,
                 'remarks' => $validated['remarks'] ?? null,
                 'description' => $validated['direction'] === 'receipt'
-                    ? 'Travel: customer receipt' . (!empty($validated['travel_invoice_id']) ? ' against invoice #' . $validated['travel_invoice_id'] : '')
-                    : 'Travel: supplier payment' . (!empty($validated['travel_invoice_id']) ? ' re. invoice #' . $validated['travel_invoice_id'] : ''),
+                    ? 'Travel: customer receipt' . (!empty($validated['travel_invoice_id']) ? ' against invoice ' . $invoiceNo : '')
+                    : 'Travel: supplier payment' . (!empty($validated['travel_invoice_id']) ? ' re. invoice ' . $invoiceNo : ''),
             ]);
 
             $payment = InvoicePayment::create([
@@ -166,7 +170,7 @@ class InvoicePaymentController extends Controller
 
     public function print(string $id)
     {
-        $payment = InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'voucher')->findOrFail($id);
+        $payment = InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'voucher.debitAccount', 'voucher.creditAccount', 'creator')->findOrFail($id);
 
         return view('invoice-payments.print', compact('payment'));
     }
@@ -181,7 +185,7 @@ class InvoicePaymentController extends Controller
         return [
             'customers' => Customer::where('is_active', true)->orderBy('name')->get(),
             'suppliers' => Supplier::where('is_active', true)->orderBy('name')->get(),
-            'invoices' => TravelInvoice::with('customer')->latest('invoice_date')->get(),
+            'invoices' => TravelInvoice::with('customer')->where('status', '!=', 'cancelled')->latest('invoice_date')->get(),
             'cashBankAccounts' => $cashBankAccounts,
         ];
     }
@@ -200,6 +204,36 @@ class InvoicePaymentController extends Controller
             'reference' => 'nullable|string|max:100',
             'remarks' => 'nullable|string|max:1000',
         ]);
+
+        $errors = [];
+
+        // The money must go in/out of an actual Cash or Bank account — any
+        // other account (e.g. the customer's own ledger) would post a
+        // meaningless voucher.
+        $isCashBank = ChartOfAccounts::whereKey($data['cash_bank_account_id'])
+            ->whereHas('subHeadOfAccount', fn ($q) => $q->whereIn('name', config('travel.cash_bank_subhead_names')))
+            ->exists();
+        if (!$isCashBank) {
+            $errors['cash_bank_account_id'] = 'Pick a Cash or Bank account.';
+        }
+
+        // A receipt against an invoice must come from that invoice's customer.
+        if (($data['direction'] ?? null) === 'receipt' && !empty($data['travel_invoice_id'])) {
+            $invoiceCustomer = TravelInvoice::whereKey($data['travel_invoice_id'])->value('customer_id');
+            if ((int) $invoiceCustomer !== (int) ($data['customer_id'] ?? 0)) {
+                $errors['travel_invoice_id'] = 'This invoice belongs to a different customer.';
+            }
+        }
+
+        // No money in or out against a cancelled invoice.
+        if (!empty($data['travel_invoice_id'])
+            && TravelInvoice::whereKey($data['travel_invoice_id'])->value('status') === 'cancelled') {
+            $errors['travel_invoice_id'] = 'This invoice is cancelled — payments cannot be recorded against it.';
+        }
+
+        if ($errors) {
+            throw \Illuminate\Validation\ValidationException::withMessages($errors);
+        }
 
         return $data;
     }

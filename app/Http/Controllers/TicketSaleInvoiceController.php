@@ -222,8 +222,13 @@ class TicketSaleInvoiceController extends Controller
         $pdf->AddPage();
 
         // ── Header: logo + company block ────────────────────────────
-        $logoPath = public_path(config('travel.company_logo_path', 'assets/img/aero-logo.png'));
-        if (file_exists($logoPath)) {
+        // Configured path first, then the logo file the project actually ships (aero-logo.jpeg).
+        $logoPath = collect([
+            public_path(config('travel.company_logo_path', 'assets/img/aero-logo.png')),
+            public_path('assets/img/aero-logo.jpeg'),
+            public_path('assets/img/aero-logo.jpg'),
+        ])->first(fn ($p) => is_file($p));
+        if ($logoPath) {
             $pdf->Image($logoPath, 12, 8, 26);
         } else {
             $pdf->SetLineWidth(0.2);
@@ -438,6 +443,7 @@ class TicketSaleInvoiceController extends Controller
             'refund_deduction_supplier' => 'required|numeric|min:0',
             'refund_deduction_company' => 'required|numeric|min:0',
         ]);
+        $this->assertRefundWithinTicket($line, $validated);
 
         DB::beginTransaction();
         try {
@@ -473,6 +479,7 @@ class TicketSaleInvoiceController extends Controller
             'void_deduction_supplier' => 'required|numeric|min:0',
             'void_deduction_company' => 'required|numeric|min:0',
         ]);
+        $this->assertVoidWithinTicket($line, $validated);
 
         DB::beginTransaction();
         try {
@@ -526,6 +533,12 @@ class TicketSaleInvoiceController extends Controller
 
         if ($lines->isEmpty()) {
             return $this->failed($request, 'None of the selected tickets could be refunded — they may already be refunded/voided. Refresh and try again.');
+        }
+        foreach ($lines as $line) {
+            $this->assertRefundWithinTicket($line, $validated + [
+                'refund_fare_amount' => (float) $line->fare_amount,
+                'refund_tax_amount' => (float) $line->tax_amount,
+            ]);
         }
 
         DB::beginTransaction();
@@ -583,6 +596,9 @@ class TicketSaleInvoiceController extends Controller
         if ($lines->isEmpty()) {
             return $this->failed($request, 'None of the selected tickets could be voided — they may already be refunded/voided. Refresh and try again.');
         }
+        foreach ($lines as $line) {
+            $this->assertVoidWithinTicket($line, $validated);
+        }
 
         DB::beginTransaction();
         try {
@@ -617,6 +633,48 @@ class TicketSaleInvoiceController extends Controller
      * carry refund_date, refund_adjustment_date, refund_fare_amount,
      * refund_tax_amount, refund_deduction_supplier, refund_deduction_company.
      */
+    /**
+     * A refund can't give back more than the ticket's own Fare / Tax (incl.
+     * APT), and the deductions can't exceed what is being refunded —
+     * otherwise refund_amount goes negative and the customer would end up
+     * owing MORE than the original ticket.
+     */
+    protected function assertRefundWithinTicket(TicketSaleInvoiceLine $line, array $data): void
+    {
+        $label = $line->ticket_no ? "ticket {$line->ticket_no}" : "this ticket ({$line->pax_name})";
+        $maxFare = (float) $line->fare_amount;
+        $maxTax = round((float) $line->tax_amount + (float) $line->apt_charges, 2);
+        $errors = [];
+
+        if ((float) $data['refund_fare_amount'] > $maxFare + 0.001) {
+            $errors['refund_fare_amount'] = "Refund fare can't be more than the fare of {$label} (" . number_format($maxFare, 2) . ').';
+        }
+        if ((float) $data['refund_tax_amount'] > $maxTax + 0.001) {
+            $errors['refund_tax_amount'] = "Refund tax can't be more than the tax + APT of {$label} (" . number_format($maxTax, 2) . ').';
+        }
+        $refunding = round((float) $data['refund_fare_amount'] + (float) $data['refund_tax_amount'], 2);
+        $deductions = round((float) $data['refund_deduction_supplier'] + (float) $data['refund_deduction_company'], 2);
+        if ($deductions > $refunding + 0.001) {
+            $errors['refund_deduction_supplier'] = 'Deductions (' . number_format($deductions, 2) . ") can't be more than the amount being refunded on {$label} (" . number_format($refunding, 2) . ').';
+        }
+
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    /** Void deductions can't exceed the ticket's own total. */
+    protected function assertVoidWithinTicket(TicketSaleInvoiceLine $line, array $data): void
+    {
+        $deductions = round((float) $data['void_deduction_supplier'] + (float) $data['void_deduction_company'], 2);
+        if ($deductions > (float) $line->total_amount + 0.001) {
+            $label = $line->ticket_no ? "ticket {$line->ticket_no}" : "this ticket ({$line->pax_name})";
+            throw ValidationException::withMessages([
+                'void_deduction_supplier' => 'Deductions (' . number_format($deductions, 2) . ") can't be more than the total of {$label} (" . number_format((float) $line->total_amount, 2) . ').',
+            ]);
+        }
+    }
+
     protected function applyRefundToLine(TicketSaleInvoiceLine $line, array $data): void
     {
         // Client fix: same two-way split as Void — the deduction kept by

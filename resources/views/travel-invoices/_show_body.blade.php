@@ -10,7 +10,8 @@
                 </h2>
                 <div>
                     @can($routeUri . '.print')
-                    <a href="{{ route($routeUri . '.print', $invoice->id) }}" class="btn btn-default" target="_blank"><i class="fa fa-print"></i> Print</a>
+                    <a href="{{ route($routeUri . '.print', $invoice->id) }}" class="btn btn-default" target="_blank" title="Customer copy — no supplier, cost or margin"><i class="fa fa-print"></i> Print (Customer)</a>
+                    <a href="{{ route($routeUri . '.print', ['id' => $invoice->id, 'copy' => 'internal']) }}" class="btn btn-default" target="_blank" title="Office copy — with supplier, payable and income"><i class="fa fa-print"></i> Print (Internal)</a>
                     @endcan
                     @can($routeUri . '.edit')
                         @if($invoice->isEditable())
@@ -38,14 +39,16 @@
                 @can($routeUri . '.edit')
                 <hr>
                 <div class="d-flex gap-2 flex-wrap">
-                    @if($invoice->status === 'draft')
-                    <form action="{{ route($routeUri . '.status', $invoice->id) }}" method="POST">@csrf @method('PATCH')<input type="hidden" name="status" value="confirmed">
-                        <button class="btn btn-sm btn-success">Confirm Invoice</button>
+                    @php($statusButtons = [
+                        'confirmed' => ['Confirm & Post to Ledgers', 'btn-success', 'Post this invoice to the customer, supplier and income ledgers?'],
+                        'draft' => [$invoice->status === 'cancelled' ? 'Re-open as Draft' : 'Back to Draft (Unpost)', 'btn-warning', $invoice->status === 'confirmed' ? 'Remove this invoice\'s ledger vouchers and make it editable again?' : 'Re-open this invoice as a draft?'],
+                        'cancelled' => ['Cancel Invoice', 'btn-danger', $invoice->status === 'confirmed' ? 'Cancel this invoice and remove its ledger vouchers?' : 'Cancel this invoice?'],
+                    ])
+                    @foreach($transitions ?? [] as $to)
+                    <form action="{{ route($routeUri . '.status', $invoice->id) }}" method="POST" onsubmit="return confirm(@js($statusButtons[$to][2]))">@csrf @method('PATCH')<input type="hidden" name="status" value="{{ $to }}">
+                        <button class="btn btn-sm {{ $statusButtons[$to][1] }}">{{ $statusButtons[$to][0] }}</button>
                     </form>
-                    <form action="{{ route($routeUri . '.status', $invoice->id) }}" method="POST">@csrf @method('PATCH')<input type="hidden" name="status" value="cancelled">
-                        <button class="btn btn-sm btn-danger">Cancel Invoice</button>
-                    </form>
-                    @endif
+                    @endforeach
                 </div>
                 @endcan
 
@@ -221,7 +224,7 @@
                 <h5 style="display:flex;justify-content:space-between;align-items:center;">
                     Payments
                     @can('invoice_payments.create')
-                    @if($invoice->outstandingAmount() > 0)
+                    @if($invoice->outstandingAmount() > 0 && $invoice->status !== 'cancelled')
                     <a href="{{ route('invoice_payments.create', ['direction' => 'receipt', 'customer_id' => $invoice->customer_id, 'travel_invoice_id' => $invoice->id]) }}" class="btn btn-sm btn-success">+ Record Receipt</a>
                     @endif
                     @endcan
@@ -236,6 +239,28 @@
                         @endforelse
                     </tbody>
                 </table>
+
+                <hr>
+                <h5>Ledger Vouchers <span class="text-muted small">— posted on Confirm, removed on Back to Draft / Cancel</span></h5>
+                <div class="table-responsive">
+                <table class="table table-bordered table-sm small align-middle">
+                    <thead><tr><th>Voucher #</th><th>Date</th><th>Debit</th><th>Credit</th><th class="text-end">Amount</th><th>Description</th></tr></thead>
+                    <tbody>
+                        @forelse($ledgerVouchers ?? [] as $v)
+                        <tr>
+                            <td>JV{{ $v->id }}</td>
+                            <td>{{ \Illuminate\Support\Carbon::parse($v->date)->format('d/m/Y') }}</td>
+                            <td>{{ $v->debitAccount->name ?? '—' }}</td>
+                            <td>{{ $v->creditAccount->name ?? '—' }}</td>
+                            <td class="text-end">{{ number_format((float) $v->amount, 2) }}</td>
+                            <td>{{ $v->description }}</td>
+                        </tr>
+                        @empty
+                        <tr><td colspan="6" class="text-center text-muted">{{ $invoice->status === 'confirmed' ? 'Nothing to post (all amounts are zero).' : 'Not posted — vouchers are created when the invoice is confirmed.' }}</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+                </div>
             </div>
         </section>
     </div>

@@ -20,6 +20,7 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Models\VisaType;
 use App\Services\ServiceLineWriter;
+use App\Services\TourInvoicePostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -149,7 +150,12 @@ abstract class BaseTravelInvoiceController extends Controller
             'serviceLines.otherDetail.service', 'serviceLines.charges.chargeType',
         ]);
 
-        return view("{$this->viewPrefix()}.show", ['invoice' => $invoice, 'routeUri' => $this->routeUri()]);
+        return view("{$this->viewPrefix()}.show", [
+            'invoice' => $invoice,
+            'routeUri' => $this->routeUri(),
+            'ledgerVouchers' => app(TourInvoicePostingService::class)->vouchers($invoice),
+            'transitions' => self::TRANSITIONS[$invoice->status] ?? [],
+        ]);
     }
 
     public function edit(string $id)
@@ -212,6 +218,9 @@ abstract class BaseTravelInvoiceController extends Controller
         if ($invoice->status === 'confirmed') {
             return redirect()->route("{$this->routeUri()}.index")->with('error', 'A confirmed invoice cannot be deleted.');
         }
+        if ($invoice->payments()->exists()) {
+            return redirect()->route("{$this->routeUri()}.show", $invoice->id)->with('error', 'This invoice has payments recorded against it — delete those payments first.');
+        }
 
         $invoice->serviceLines()->delete();
         $invoice->passengers()->delete();
@@ -223,14 +232,33 @@ abstract class BaseTravelInvoiceController extends Controller
     public function print(string $id)
     {
         $invoice = $this->findForType($id, [
-            'customer', 'passengers', 'serviceLines.supplier',
-            'serviceLines.ticketDetail.flights', 'serviceLines.hotelDetail',
-            'serviceLines.transportDetail', 'serviceLines.visaDetail', 'serviceLines.otherDetail',
+            'customer', 'passengers', 'payments', 'serviceLines.supplier',
+            'serviceLines.ticketDetail.flights', 'serviceLines.ticketDetail.airlineRecord',
+            'serviceLines.hotelDetail.hotel', 'serviceLines.hotelDetail.rooms.hotelRoom', 'serviceLines.hotelDetail.rooms.roomView',
+            'serviceLines.transportDetail.vehicle', 'serviceLines.transportDetail.vehicles.vehicle',
+            'serviceLines.visaDetail.visaType', 'serviceLines.otherDetail.service',
             'serviceLines.charges.chargeType',
         ]);
 
-        return view("{$this->viewPrefix()}.print", ['invoice' => $invoice]);
+        // Customer copy by default (no supplier / cost / margin); ?copy=internal for the office copy.
+        if (request('copy') === 'internal') {
+            return view("{$this->viewPrefix()}.print", ['invoice' => $invoice]);
+        }
+
+        return view('travel-invoices._customer_print', ['invoice' => $invoice]);
     }
+
+    /**
+     * Allowed moves (client sign-off pending):
+     *   Draft     → Confirmed (posts the vouchers) | Cancelled
+     *   Confirmed → Draft (removes the vouchers, editable again) | Cancelled (removes the vouchers)
+     *   Cancelled → Draft (re-open)
+     */
+    public const TRANSITIONS = [
+        'draft' => ['confirmed', 'cancelled'],
+        'confirmed' => ['draft', 'cancelled'],
+        'cancelled' => ['draft'],
+    ];
 
     public function updateStatus(Request $request, string $id)
     {
@@ -239,10 +267,35 @@ abstract class BaseTravelInvoiceController extends Controller
         $validated = $request->validate([
             'status' => ['required', Rule::in(TravelInvoice::STATUSES)],
         ]);
+        $to = $validated['status'];
 
-        $invoice->update(['status' => $validated['status']]);
+        if (!in_array($to, self::TRANSITIONS[$invoice->status] ?? [], true)) {
+            return back()->with('error', 'A ' . $invoice->status . ' invoice cannot be moved to ' . $to . '.');
+        }
 
-        return back()->with('success', "Invoice marked as {$validated['status']}.");
+        $posting = app(TourInvoicePostingService::class);
+        $wasPosted = $posting->isPosted($invoice);
+
+        try {
+            DB::transaction(function () use ($invoice, $to, $posting) {
+                if ($to === 'confirmed') {
+                    $posting->post($invoice);
+                } else {
+                    $posting->unpost($invoice);
+                }
+                $invoice->update(['status' => $to]);
+            });
+        } catch (\RuntimeException $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        $message = match ($to) {
+            'confirmed' => 'Invoice confirmed and posted to the ledgers.',
+            'cancelled' => 'Invoice cancelled' . ($wasPosted ? '; its ledger vouchers were removed.' : '.'),
+            default => 'Invoice moved back to draft' . ($wasPosted ? '; its ledger vouchers were removed.' : '.'),
+        };
+
+        return back()->with('success', $message);
     }
 
     /** Scope lookups to this controller's invoice_type so /ticket_invoices/{id} 404s on a tour invoice id and vice versa. */

@@ -1,27 +1,47 @@
-@extends('layouts.app')
+{{-- Receipt (customer) / Payment (supplier) voucher print — company header, amount in words, signatures. --}}
+@php
+    $isReceipt = $payment->direction === 'receipt';
+    $party = $isReceipt ? ($payment->customer->name ?? '—') : ($payment->supplier->name ?? '—');
+    $voucherNo = ($isReceipt ? 'RV' : 'PV') . ($payment->voucher_id ?? $payment->id);
+    $cashBank = $isReceipt ? $payment->voucher?->debitAccount : $payment->voucher?->creditAccount;
+@endphp
+@extends('prints._document', ['docTitle' => $isReceipt ? 'PAYMENT RECEIPT' : 'PAYMENT VOUCHER', 'docNo' => $voucherNo, 'compact' => true])
 
-@section('title', 'Print — Payment #' . $payment->id)
+@section('meta')
+    <div><span>Voucher No</span> <strong>{{ $voucherNo }}</strong></div>
+    <div><span>Date</span> {{ $payment->payment_date->format('d/m/Y') }}</div>
+    <div><span>{{ $isReceipt ? 'Received From' : 'Paid To' }}</span> <strong>{{ $party }}</strong></div>
+    <div><span>Against Invoice</span> {{ $payment->travelInvoice->invoice_no ?? '—' }}</div>
+    <div><span>Mode</span> {{ ucfirst($payment->payment_mode) }}{{ $cashBank ? ' — ' . $cashBank->name : '' }}</div>
+    <div><span>{{ $payment->payment_mode === 'cheque' ? 'Cheque No' : 'Reference' }}</span> {{ $payment->reference ?: '—' }}</div>
+@endsection
 
-@section('content')
-<div class="row">
-    <div class="col-12">
-        <section class="card">
-            <header class="card-header"><h2 class="card-title">{{ ucfirst($payment->direction) }} Voucher</h2></header>
-            <div class="card-body">
-                <div class="row mb-3">
-                    <div class="col-md-4"><strong>Party:</strong> {{ $payment->customer->name ?? $payment->supplier->name ?? '—' }}</div>
-                    <div class="col-md-4"><strong>Date:</strong> {{ $payment->payment_date->format('d/m/Y') }}</div>
-                    <div class="col-md-4"><strong>Amount:</strong> {{ number_format($payment->amount, 2) }}</div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-md-4"><strong>Mode:</strong> {{ ucfirst($payment->payment_mode) }}</div>
-                    <div class="col-md-4"><strong>Reference:</strong> {{ $payment->reference ?: '—' }}</div>
-                    <div class="col-md-4"><strong>Invoice:</strong> {{ $payment->travelInvoice->invoice_no ?? '—' }}</div>
-                </div>
-                @if($payment->remarks)<p><strong>Remarks:</strong> {{ $payment->remarks }}</p>@endif
-                <button class="btn btn-primary no-print" onclick="window.print()"><i class="fa fa-print"></i> Print</button>
-            </div>
-        </section>
+@section('body')
+    <table>
+        <thead><tr><th>Description</th><th class="num" style="width:160px">Amount (PKR)</th></tr></thead>
+        <tbody>
+            <tr>
+                <td>
+                    {{ $isReceipt ? 'Amount received' : 'Amount paid' }}{{ $payment->travelInvoice ? ' against invoice ' . $payment->travelInvoice->invoice_no : '' }}
+                    @if($payment->remarks)<div class="muted">{{ $payment->remarks }}</div>@endif
+                </td>
+                <td class="num"><strong>{{ number_format((float) $payment->amount, 2) }}</strong></td>
+            </tr>
+        </tbody>
+    </table>
+    <div class="words">{{ \App\Support\AmountInWords::rupees((float) $payment->amount) }}</div>
+
+    @if($isReceipt && $payment->travelInvoice)
+        @php($inv = $payment->travelInvoice)
+        <table class="totals">
+            <tr><td>Invoice Total</td><td class="num">{{ number_format((float) $inv->total_receivable, 2) }}</td></tr>
+            <tr><td>Total Received to date</td><td class="num">{{ number_format($inv->receivedAmount(), 2) }}</td></tr>
+            <tr class="grand"><td>Balance Due</td><td class="num">{{ number_format($inv->outstandingAmount(), 2) }}</td></tr>
+        </table>
+    @endif
+
+    <div class="signs">
+        <div>{{ $isReceipt ? 'Received By' : 'Prepared By' }}{{ $payment->creator ? ' — ' . $payment->creator->name : '' }}</div>
+        <div>{{ $isReceipt ? 'Customer Signature' : 'Receiver Signature' }}</div>
     </div>
-</div>
 @endsection
