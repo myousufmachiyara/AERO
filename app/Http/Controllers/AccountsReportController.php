@@ -428,7 +428,7 @@ class AccountsReportController extends Controller
                 if ($val != 0) $assets->push([$r[0], $this->fmt($val)]);
 
             // Liabilities & equity side: credit-natured accounts (excluding revenue/cogs — P&L)
-            } elseif (in_array($type, ['vendor', 'payable', 'liability', 'equity'])) {
+            } elseif (in_array($type, ['vendor', 'payable', 'liability', 'equity', 'airline'])) {
                 $val = $credit - $debit;
                 if ($val != 0) $liabilities->push([$r[0], $this->fmt($val)]);
             }

@@ -364,7 +364,8 @@ class TicketInvoicePostingService
             'shoa_id' => $subHead->id,
             'account_code' => ChartOfAccounts::nextAccountCode($subHead->id),
             'name' => $accountName,
-            'account_type' => 'income',
+            // revenue / cogs so Profit & Loss and the Balance Sheet pick the account up
+            'account_type' => $accountName === config('travel.ticket_cost_expense_account_name') ? 'cogs' : 'revenue',
             'receivables' => 0,
             'payables' => 0,
             'credit_limit' => 0,

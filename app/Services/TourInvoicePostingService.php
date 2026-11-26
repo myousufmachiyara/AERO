@@ -104,7 +104,7 @@ class TourInvoicePostingService
 
             $this->entry($invoice, 'ticket', TravelInvoiceLedgerEntry::TYPE_PSF, $date,
                 $customer->chart_of_account_id,
-                $this->systemAccount(config('travel.psf_income_subhead_name'), config('travel.psf_income_account_name'), 'income')->id,
+                $this->systemAccount(config('travel.psf_income_subhead_name'), config('travel.psf_income_account_name'), 'revenue')->id,
                 $psf, "Tour Invoice {$invoice->invoice_no} — PSF (company earning)");
 
             foreach ($costs as $key => $amount) {
@@ -120,8 +120,8 @@ class TourInvoicePostingService
                 [$kind, $partyId] = explode('|', $key);
                 [$partyAccount, $partyName] = $this->party($kind, (int) $partyId);
                 $incomeAccount = $kind === 'airline'
-                    ? $this->systemAccount(config('travel.airline_commission_income_subhead_name'), config('travel.airline_commission_income_account_name'), 'income')
-                    : $this->systemAccount('Other Income', 'Supplier Commission Income', 'income');
+                    ? $this->systemAccount(config('travel.airline_commission_income_subhead_name'), config('travel.airline_commission_income_account_name'), 'revenue')
+                    : $this->systemAccount('Other Income', 'Supplier Commission Income', 'revenue');
                 $service = $kind === 'airline' ? 'ticket' : 'charges';
 
                 if ($amount > 0) {
@@ -206,19 +206,19 @@ class TourInvoicePostingService
     protected function salesAccount(string $type): ChartOfAccounts
     {
         if ($type === 'ticket') {
-            return $this->systemAccount(config('travel.ticket_sales_income_subhead_name'), config('travel.ticket_sales_income_account_name'), 'income');
+            return $this->systemAccount(config('travel.ticket_sales_income_subhead_name'), config('travel.ticket_sales_income_account_name'), 'revenue');
         }
 
-        return $this->systemAccount('Sales', (self::SERVICE_LABELS[$type] ?? ucfirst($type)) . ' Sales', 'income');
+        return $this->systemAccount('Sales', (self::SERVICE_LABELS[$type] ?? ucfirst($type)) . ' Sales', 'revenue');
     }
 
     protected function costAccount(string $type): ChartOfAccounts
     {
         if ($type === 'ticket') {
-            return $this->systemAccount(config('travel.ticket_cost_expense_subhead_name'), config('travel.ticket_cost_expense_account_name'), 'expense');
+            return $this->systemAccount(config('travel.ticket_cost_expense_subhead_name'), config('travel.ticket_cost_expense_account_name'), 'cogs');
         }
 
-        return $this->systemAccount('Cost of Goods Sold', (self::SERVICE_LABELS[$type] ?? ucfirst($type)) . ' Cost', 'expense');
+        return $this->systemAccount('Cost of Goods Sold', (self::SERVICE_LABELS[$type] ?? ucfirst($type)) . ' Cost', 'cogs');
     }
 
     protected function entry(TravelInvoice $invoice, string $service, string $entryType, string $date, int $dr, int $cr, float $amount, string $description): void
