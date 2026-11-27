@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\ChartOfAccounts;
 use App\Models\Customer;
 use App\Services\CustomerStatementService;
+use App\Services\VendorStatementService;
+use App\Models\Supplier;
 use App\Models\Voucher;
 use Carbon\Carbon;
 use DB;
@@ -69,7 +71,14 @@ class AccountsReportController extends Controller
             $statement = app(CustomerStatementService::class)->build($customer, $from, $to);
         }
 
-        return view('reports.accounts_reports', compact('reports', 'from', 'to', 'chartOfAccounts', 'customers', 'statement'));
+        // Vendor Statement tab — only built once a supplier is picked.
+        $suppliers = Supplier::orderBy('name')->get(['id', 'name', 'code']);
+        $vendorStatement = null;
+        if ($request->filled('supplier_id') && ($supplier = Supplier::find($request->supplier_id))) {
+            $vendorStatement = app(VendorStatementService::class)->build($supplier, $from, $to);
+        }
+
+        return view('reports.accounts_reports', compact('reports', 'from', 'to', 'chartOfAccounts', 'customers', 'statement', 'suppliers', 'vendorStatement'));
     }
 
     /**
@@ -77,6 +86,41 @@ class AccountsReportController extends Controller
      * sample: company header, customer block, Sale Invoices by service,
      * Refund Invoices, Vouchers, then the closing summary.
      */
+    /** Vendor Account Statement as a PDF — the Customer Statement layout for a supplier. */
+    public function vendorStatementPdf(Request $request, VendorStatementService $service)
+    {
+        $validated = $request->validate([
+            'supplier_id' => 'required|exists:suppliers,id',
+            'from_date' => 'required|date',
+            'to_date' => 'required|date|after_or_equal:from_date',
+        ]);
+
+        $statement = $service->build(Supplier::findOrFail($validated['supplier_id']), $validated['from_date'], $validated['to_date']);
+
+        $pdf = new \App\Support\CustomerStatementPdf('P', 'mm', 'A4', true, 'UTF-8', false);
+        $pdf->statement = $statement;
+        $pdf->docTitle = 'Vendor Account Statement';
+        $pdf->SetCreator(config('app.name', 'AERO'));
+        $pdf->SetAuthor(config('travel.company_name'));
+        $pdf->SetTitle('Vendor Account Statement — ' . $statement['supplier']->name);
+        $pdf->SetMargins(8, 30, 8);
+        $pdf->SetHeaderMargin(6);
+        $pdf->SetFooterMargin(12);
+        $pdf->SetAutoPageBreak(true, 18);
+        $pdf->AddPage();
+        $pdf->renderCompanyHeader();
+        $pdf->SetFont('helvetica', '', 7.5);
+        $pdf->writeHTML(view('reports.vendor_statement_pdf', ['s' => $statement])->render(), true, false, true, false, '');
+
+        $fileName = 'Vendor_Statement_' . preg_replace('/[^A-Za-z0-9]+/', '_', $statement['supplier']->name)
+            . '_' . $statement['from'] . '_' . $statement['to'] . '.pdf';
+
+        return response($pdf->Output($fileName, 'S'), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $fileName . '"',
+        ]);
+    }
+
     public function customerStatementPdf(Request $request, CustomerStatementService $service)
     {
         $validated = $request->validate([

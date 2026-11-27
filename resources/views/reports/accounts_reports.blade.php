@@ -35,6 +35,9 @@
         <li class="nav-item">
             <a class="nav-link" id="customer_statement-tab" data-bs-toggle="tab" href="#customer_statement" role="tab">Customer Statement</a>
         </li>
+        <li class="nav-item">
+            <a class="nav-link" id="vendor_statement-tab" data-bs-toggle="tab" href="#vendor_statement" role="tab">Vendor Statement</a>
+        </li>
     </ul>
 
     <div class="tab-content mt-3" id="reportTabsContent">
@@ -303,6 +306,7 @@
         @endforeach
 
         @include('reports._customer_statement')
+        @include('reports._vendor_statement')
 
     </div>
 </div>

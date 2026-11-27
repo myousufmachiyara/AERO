@@ -6,6 +6,10 @@
 --}}
 @php
     $n = fn ($v) => number_format((float) $v, 2);
+    // Balances below zero print with a minus sign in red (client fix, Nov 2026).
+    $bal = fn ($v) => (float) $v < -0.004
+        ? '<span style="color:#c0392b; font-weight:bold;">-' . number_format(abs((float) $v), 2) . '</span>'
+        : number_format((float) $v, 2);
     $d = fn ($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d/m/Y') : '';
     $csFrom = request('from_date', $from);
     $csTo = request('to_date', $to);
@@ -86,7 +90,7 @@
             <table class="table table-bordered table-sm cs-table mb-0">
                 <thead class="table-light"><tr>
                     <th>Date</th><th>Invoice</th><th>Ticket No.</th><th>Passenger</th><th>Sector</th>
-                    <th class="text-end">Fare</th><th class="text-end">Taxes</th><th class="text-end">SP</th><th class="text-end">KB</th><th class="text-end">Net</th>
+                    <th class="text-end">Fare</th><th class="text-end">Taxes</th><th class="text-end">KB</th><th class="text-end">Net</th>
                 </tr></thead>
                 <tbody>
                 @foreach ($sec['ticket'] as $r)
@@ -98,7 +102,6 @@
                         <td>{{ $r['sector'] }}</td>
                         <td class="text-end">{{ $n($r['fare']) }}</td>
                         <td class="text-end">{{ $n($r['taxes']) }}</td>
-                        <td class="text-end">{{ $n($r['sp']) }}</td>
                         <td class="text-end">{{ $n($r['kb']) }}</td>
                         <td class="text-end">{{ $n($r['net']) }}</td>
                     </tr>
@@ -108,7 +111,6 @@
                     <td colspan="5" class="text-end">Total</td>
                     <td class="text-end">{{ $n($sec['ticket']->sum('fare')) }}</td>
                     <td class="text-end">{{ $n($sec['ticket']->sum('taxes')) }}</td>
-                    <td class="text-end">{{ $n($sec['ticket']->sum('sp')) }}</td>
                     <td class="text-end">{{ $n($sec['ticket']->sum('kb')) }}</td>
                     <td class="text-end">{{ $n($sec['ticket']->sum('net')) }}</td>
                 </tr></tfoot>
@@ -233,7 +235,7 @@
             <table class="table table-bordered table-sm cs-table mb-0">
                 <thead class="table-light"><tr>
                     <th>Date</th><th>Invoice</th><th>Ticket No.</th><th>Passenger</th><th>Sector</th>
-                    <th class="text-end">Fare</th><th class="text-end">Taxes</th><th class="text-end">SP</th><th class="text-end">KB</th><th class="text-end">CC</th><th class="text-end">Net</th>
+                    <th class="text-end">Fare</th><th class="text-end">Taxes</th><th class="text-end">KB</th><th class="text-end">CC</th><th class="text-end">Net</th>
                 </tr></thead>
                 <tbody>
                 @foreach ($s['refunds'] as $r)
@@ -242,7 +244,7 @@
                         <td>{{ $r['passenger'] }} <span class="badge {{ $r['kind'] === 'void' ? 'bg-secondary' : 'bg-info' }}">{{ strtoupper($r['kind']) }}</span></td>
                         <td>{{ $r['sector'] }}</td>
                         <td class="text-end">{{ $n($r['fare']) }}</td><td class="text-end">{{ $n($r['taxes']) }}</td>
-                        <td class="text-end">{{ $n($r['sp']) }}</td><td class="text-end">{{ $n($r['kb']) }}</td>
+                        <td class="text-end">{{ $n($r['kb']) }}</td>
                         <td class="text-end">{{ $n($r['cc']) }}</td><td class="text-end">{{ $n($r['net']) }}</td>
                     </tr>
                 @endforeach
@@ -250,7 +252,7 @@
                 <tfoot><tr>
                     <td colspan="5" class="text-end">Total</td>
                     <td class="text-end">{{ $n($s['refunds']->sum('fare')) }}</td><td class="text-end">{{ $n($s['refunds']->sum('taxes')) }}</td>
-                    <td class="text-end">{{ $n($s['refunds']->sum('sp')) }}</td><td class="text-end">{{ $n($s['refunds']->sum('kb')) }}</td>
+                    <td class="text-end">{{ $n($s['refunds']->sum('kb')) }}</td>
                     <td class="text-end">{{ $n($s['refunds']->sum('cc')) }}</td><td class="text-end">{{ $n($s['refunds']->sum('net')) }}</td>
                 </tr></tfoot>
             </table>
@@ -290,12 +292,12 @@
 
         {{-- ================= CLOSING SUMMARY ================= --}}
         <table class="table table-sm cs-summary">
-            <tr><td>Opening Balance B/F</td><td class="text-end">{{ $n($s['summary']['opening']) }}</td></tr>
+            <tr><td>Opening Balance B/F</td><td class="text-end">{!! $bal($s['summary']['opening']) !!}</td></tr>
             <tr><td>Add Sale Invoices</td><td class="text-end">{{ $n($s['summary']['sales']) }}</td></tr>
             <tr><td>Less Refund Invoices</td><td class="text-end">{{ $n($s['summary']['refunds']) }}</td></tr>
             <tr><td>Less Receipts</td><td class="text-end">{{ $n($s['summary']['receipts']) }}</td></tr>
             <tr><td>Add Payments</td><td class="text-end">{{ $n($s['summary']['payments']) }}</td></tr>
-            <tr class="fw-bold border"><td class="border">Net Balance</td><td class="text-end border">{{ $n($s['summary']['net']) }}</td></tr>
+            <tr class="fw-bold border"><td class="border">Net Balance</td><td class="text-end border">{!! $bal($s['summary']['net']) !!}</td></tr>
         </table>
     @endif
 </div>

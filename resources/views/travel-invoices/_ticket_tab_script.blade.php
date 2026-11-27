@@ -274,6 +274,11 @@
         }
 
         row.querySelector('.f-ticket-no').addEventListener('input', e => {
+            // Ticket # is exactly 13 digits — anything past the 13th digit is dropped as you type.
+            const typed = e.target.value.replace(/[^\d-]/g, '');
+            if (typed.replace(/\D/g, '').length > 13 || typed !== e.target.value) {
+                e.target.value = formatTicketNo(typed);
+            }
             e.target.dataset.autoFilled = '';
             if (row === wrap.querySelector('.ticket-row')) {
                 autoSequenceTicketNumbers();

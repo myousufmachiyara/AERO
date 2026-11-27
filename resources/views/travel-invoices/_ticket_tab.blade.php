@@ -284,7 +284,7 @@
         </td>
         <td><select class="form-control form-control-sm f-pax-type"></select></td>
         <td>
-            <input type="text" class="form-control form-control-sm f-ticket-no" placeholder="220-1234-567-890" maxlength="16">
+            <input type="text" class="form-control form-control-sm f-ticket-no" placeholder="220-1234-567-890" maxlength="16" inputmode="numeric" title="13-digit ticket number">
         </td>
         <td class="text-end align-middle f-row-amount">0.00</td>
         <td class="text-center align-middle">

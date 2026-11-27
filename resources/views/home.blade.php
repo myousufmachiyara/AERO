@@ -337,7 +337,7 @@
                                 <td class="ps-3"><i class="fas {{ $in ? 'fa-arrow-down text-success' : 'fa-arrow-up text-danger' }}"></i></td>
                                 <td>
                                     <a href="{{ route('invoice_payments.show', $p->id) }}">{{ $in ? ($p->customer->name ?? '—') : ($p->supplier->name ?? '—') }}</a>
-                                    <div class="small text-muted">{{ $p->payment_date->format('d/m/Y') }} · {{ $in ? 'Receipt' : 'Supplier payment' }}{{ $p->travelInvoice ? ' · ' . $p->travelInvoice->invoice_no : '' }}</div>
+                                    <div class="small text-muted">{{ $p->payment_date->format('d/m/Y') }} · {{ $in ? 'Receipt' : 'Supplier payment' }}{{ $p->invoiceNo() ? ' · ' . $p->invoiceNo() : '' }}</div>
                                 </td>
                                 <td class="text-end pe-3 {{ $in ? 'text-success' : 'text-danger' }}"><strong>{{ $in ? '+' : '−' }}{{ number_format((float) $p->amount, 2) }}</strong></td>
                             </tr>

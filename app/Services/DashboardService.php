@@ -72,7 +72,7 @@ class DashboardService
             'departures' => $this->departures($today, 7),
             'topCustomers' => $owedToUs->sortByDesc('balance')->take(5)->values(),
             'recentInvoices' => $this->recentInvoices(8),
-            'recentPayments' => InvoicePayment::with('customer', 'supplier', 'travelInvoice')->latest('payment_date')->latest('id')->take(6)->get(),
+            'recentPayments' => InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'ticketSaleInvoice')->latest('payment_date')->latest('id')->take(6)->get(),
         ];
     }
 

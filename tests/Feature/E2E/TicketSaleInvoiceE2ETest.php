@@ -186,7 +186,8 @@ class TicketSaleInvoiceE2ETest extends TestCase
         ], $inv->ledgerEntries()->pluck('amount', 'entry_type')->map(fn ($v) => (float) $v)->all());
 
         $this->assertEquals(2250, $this->balance($this->customer->chart_of_account_id));          // = invoice total
-        $this->assertEquals(-2050, $this->balance($this->airline->chart_of_account_id));          // owe supplier net 1025 × 2
+        $this->assertEquals(-2050, $this->balance($this->supplier->chart_of_account_id));         // owe supplier net 1025 × 2
+        $this->assertEquals(0, $this->balance($this->airline->chart_of_account_id), 'Ticket payable goes to the supplier, not the airline.');
         $this->assertEquals(-2220, $this->balance($this->systemAccountId('ticket_sales_income_account_name')));
         $this->assertEquals(-30, $this->balance($this->systemAccountId('psf_income_account_name')));
         $this->assertEquals(2240, $this->balance($this->systemAccountId('ticket_cost_expense_account_name')));
@@ -201,15 +202,28 @@ class TicketSaleInvoiceE2ETest extends TestCase
         $this->assertEquals(200, round($profit, 2));
     }
 
-    public function test_ledger_02_post_splits_airline_vouchers_per_airline(): void
+    public function test_ledger_02_post_splits_payable_vouchers_per_supplier(): void
     {
-        $inv = $this->createInvoice([$this->ticket('A', '2201111111111'), $this->ticket('B', '1761111111112')]);
-        $this->patch(route('ticket_invoices.post', $inv->id));
+        $supplier2 = \App\Models\Supplier::factory()->create();
+        $supplier2->update(['chart_of_account_id' => app(\App\Services\PartyLedgerService::class)->syncSupplier($supplier2)->id]);
 
-        $this->assertEquals(-1025, $this->balance($this->airline->chart_of_account_id));
-        $this->assertEquals(-1025, $this->balance($this->airline2->chart_of_account_id));
+        $inv = $this->createInvoice([$this->ticket('A', '2201111111111'), $this->ticket('B', '1761111111112', ['supplier_id' => $supplier2->id])]);
+        $this->patch(route('ticket_invoices.post', $inv->id))->assertSessionHas('success');
+
+        $this->assertEquals(-1025, $this->balance($this->supplier->chart_of_account_id));
+        $this->assertEquals(-1025, $this->balance($supplier2->chart_of_account_id));
+        $this->assertEquals(0, $this->balance($this->airline->chart_of_account_id));
+        $this->assertEquals(0, $this->balance($this->airline2->chart_of_account_id));
         $this->assertSame(2, $inv->ledgerEntries()->where('entry_type', TicketInvoiceLedgerEntry::TYPE_AIRLINE_PAYABLE)->count());
         $this->assertBooksBalance();
+    }
+
+    public function test_ledger_04_post_refused_without_a_supplier(): void
+    {
+        $inv = $this->createInvoice([$this->ticket('A', '2201111111111', ['supplier_id' => null])]);
+        $this->patch(route('ticket_invoices.post', $inv->id))->assertSessionHas('error', fn ($m) => str_contains($m, 'supplier'));
+        $this->assertSame('pending', $inv->fresh()->status);
+        $this->assertSame(0, Voucher::count());
     }
 
     public function test_ledger_03_unpost_removes_every_voucher_and_repost_rebuilds_them(): void
@@ -271,7 +285,10 @@ class TicketSaleInvoiceE2ETest extends TestCase
 
         $this->patch(route('ticket_invoices.post', $inv->id));
         $this->assertEquals(75, $this->balance($this->customer->chart_of_account_id));
-        $this->assertEquals(-30, $this->balance($this->airline->chart_of_account_id)); // supplier deduction only
+        // No profit on a refunded ticket: everything the customer is still charged goes to the supplier.
+        $this->assertEquals(-75, $this->balance($this->supplier->chart_of_account_id));
+        $this->assertEquals(0, $this->balance($this->systemAccountId('psf_income_account_name')));
+        $this->assertEquals(0, (float) $inv->fresh('lines')->total_income);
         $this->assertBooksBalance();
     }
 
@@ -284,9 +301,11 @@ class TicketSaleInvoiceE2ETest extends TestCase
         $this->postJson(route('ticket_invoices.lines.refund', [$inv->id, $line->id]), $this->refundPayload())->assertOk();
 
         $entries = TicketInvoiceLedgerEntry::where('ticket_sale_invoice_line_id', $line->id)->get();
-        $this->assertSame(7, $entries->count()); // 4 reversals + 3 charges
+        $this->assertSame(6, $entries->count()); // 4 reversals + 2 charges (customer sale, supplier payable — no PSF)
         $this->assertTrue($entries->every(fn ($e) => $e->adjustment === 'refund'));
         $this->assertEquals(75 + 1125, $this->balance($this->customer->chart_of_account_id));
+        $this->assertEquals(-(75 + 1025), $this->balance($this->supplier->chart_of_account_id));
+        $this->assertEquals(100, (float) $inv->fresh('lines')->total_income, 'Only the active ticket earns.');
         $this->assertBooksBalance();
         $viaAdjustment = $this->allBalances();
 
@@ -407,8 +426,68 @@ class TicketSaleInvoiceE2ETest extends TestCase
 
         $this->patch(route('ticket_invoices.post', $inv->id));
         $this->assertEquals(20, $this->balance($this->customer->chart_of_account_id));
-        $this->assertEquals(-10, $this->balance($this->airline->chart_of_account_id));
+        $this->assertEquals(-20, $this->balance($this->supplier->chart_of_account_id), 'Both void charges go to the supplier.');
+        $this->assertEquals(0, (float) $inv->fresh('lines')->total_income);
         $this->assertBooksBalance();
+    }
+
+    // ═══════════════════════ REVERT REFUND / VOID ═══════════════════════
+
+    public function test_revert_01_refund_on_posted_invoice_restores_the_original_posting(): void
+    {
+        $inv = $this->createInvoice([$this->ticket('A', '2201111111111'), $this->ticket('B', '2201111111112')]);
+        $this->patch(route('ticket_invoices.post', $inv->id));
+        $posted = $this->allBalances();
+        $line = $inv->lines->first();
+
+        $this->postJson(route('ticket_invoices.lines.refund', [$inv->id, $line->id]), $this->refundPayload())->assertOk();
+        $this->assertNotEquals($posted, $this->allBalances());
+
+        $this->postJson(route('ticket_invoices.lines.revert', [$inv->id, $line->id]))->assertOk()->assertJsonPath('redirect', route('ticket_invoices.show', $inv->id));
+        $line->refresh();
+        $this->assertSame('active', $line->status);
+        $this->assertNull($line->refund_amount);
+        $this->assertEquals(2250, (float) $inv->fresh()->total_amount);
+        $this->assertSame(0, TicketInvoiceLedgerEntry::where('ticket_sale_invoice_line_id', $line->id)->count());
+        $this->assertEquals($posted, $this->allBalances(), 'Ledgers are back to the original Post.');
+        $this->assertBooksBalance();
+
+        $this->postJson(route('ticket_invoices.lines.revert', [$inv->id, $line->id]))->assertStatus(422);
+    }
+
+    public function test_revert_02_void_on_posted_invoice_and_refund_made_before_posting(): void
+    {
+        $inv = $this->createInvoice([$this->ticket('A', '2201111111111'), $this->ticket('B', '2201111111112')]);
+        [$a, $b] = $inv->lines;
+        // b refunded while pending, then posted: its refund has no vouchers of its own.
+        $this->postJson(route('ticket_invoices.lines.refund', [$inv->id, $b->id]), $this->refundPayload())->assertOk();
+        $this->patch(route('ticket_invoices.post', $inv->id));
+        $this->postJson(route('ticket_invoices.lines.void', [$inv->id, $a->id]), ['void_date' => '2026-11-20', 'void_deduction_supplier' => 5, 'void_deduction_company' => 5])->assertOk();
+
+        $this->postJson(route('ticket_invoices.lines.revert', [$inv->id, $a->id]))->assertOk();
+        $this->postJson(route('ticket_invoices.lines.revert', [$inv->id, $b->id]))->assertOk();
+        $this->assertSame(['active', 'active'], $inv->lines()->pluck('status')->all());
+        $this->assertSame('posted', $inv->fresh()->status);
+        $this->assertEquals(2250, $this->balance($this->customer->chart_of_account_id));
+        $this->assertEquals(-2050, $this->balance($this->supplier->chart_of_account_id));
+        $this->assertEquals(200, (float) $inv->fresh('lines')->total_income);
+        $this->assertBooksBalance();
+
+        $this->get(route('ticket_invoices.show', $inv->id))->assertOk()->assertDontSee('Revert Refund');
+    }
+
+    public function test_revert_03_pending_invoice_and_show_page_button(): void
+    {
+        $inv = $this->createInvoice([$this->ticket('A', '2201111111111')]);
+        $line = $inv->lines->first();
+        $this->postJson(route('ticket_invoices.lines.void', [$inv->id, $line->id]), ['void_date' => '2026-11-20', 'void_deduction_supplier' => 5, 'void_deduction_company' => 5])->assertOk();
+        $this->get(route('ticket_invoices.show', $inv->id))->assertOk()->assertSee('Revert Void')
+            ->assertSee('Charges 10.00 deducted from the customer');
+
+        $this->postJson(route('ticket_invoices.lines.revert', [$inv->id, $line->id]))->assertOk();
+        $this->assertSame('active', $line->fresh()->status);
+        $this->assertEquals(1125, (float) $inv->fresh()->total_amount);
+        $this->assertSame(0, Voucher::count());
     }
 
     // ═══════════════════════ EDIT AFTER ADJUSTMENTS ═══════════════════════

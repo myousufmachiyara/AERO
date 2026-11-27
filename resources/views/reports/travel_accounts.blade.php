@@ -112,7 +112,7 @@
                             <td>{{ $p->payment_date->format('d/m/Y') }}</td>
                             <td>{{ ucfirst($p->direction) }}</td>
                             <td>{{ $p->customer->name ?? $p->supplier->name ?? '—' }}</td>
-                            <td>{{ $p->travelInvoice->invoice_no ?? '—' }}</td>
+                            <td>{{ $p->invoiceNo() ?? '—' }}</td>
                             <td class="text-end">{{ number_format($p->amount, 2) }}</td>
                             <td>{{ ucfirst($p->payment_mode) }}</td>
                         </tr>

@@ -720,6 +720,63 @@ class TicketSaleInvoiceController extends Controller
         ]);
     }
 
+    /**
+     * Revert a refund or void — the ticket becomes active again with its
+     * original figures (client fix, Nov 2026). On a posted invoice the
+     * ledgers go back to what the original Post wrote: the refund/void
+     * vouchers are removed, or — when the refund was made before posting
+     * and so has no vouchers of its own — the invoice is re-posted.
+     */
+    public function revertLine(Request $request, string $invoiceId, string $lineId)
+    {
+        $invoice = TicketSaleInvoice::findOrFail($invoiceId);
+        $line = $invoice->lines()->findOrFail($lineId);
+
+        if ($line->isActive()) {
+            return $this->failed($request, 'This ticket is not refunded or voided.');
+        }
+        $was = $line->status;
+
+        DB::beginTransaction();
+        try {
+            $hasOwnVouchers = $invoice->ledgerEntries()->where('ticket_sale_invoice_line_id', $line->id)->exists();
+            $repost = $invoice->isPosted() && !$hasOwnVouchers;
+
+            if ($repost) {
+                $this->poster->unpost($invoice);
+            } elseif ($hasOwnVouchers) {
+                $this->poster->revertLineAdjustment($invoice, $line);
+            }
+
+            $line->update([
+                'status' => TicketSaleInvoiceLine::STATUS_ACTIVE,
+                'refund_date' => null, 'refund_adjustment_date' => null,
+                'refund_fare_amount' => null, 'refund_tax_amount' => null,
+                'refund_deduction_supplier' => null, 'refund_deduction_company' => null,
+                'refund_charges' => null, 'refund_amount' => null, 'refund_profit' => null,
+                'void_date' => null, 'void_deduction_supplier' => null, 'void_deduction_company' => null,
+                'void_total_deduction' => null,
+                'updated_by' => auth()->id(),
+            ]);
+            $invoice->recalculateTotals();
+
+            if ($repost) {
+                $this->poster->post($invoice->fresh());
+            }
+
+            DB::commit();
+
+            return $this->done($request, route('ticket_invoices.show', $invoice->id),
+                "The {$was} of ticket {$line->ticket_no} was reverted; the ticket is active again."
+                . ($invoice->fresh()->isPosted() ? ' Ledgers restored.' : ''));
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('[TicketSaleInvoice] revert failed: ' . $e->getMessage());
+
+            return $this->failed($request, 'Could not revert: ' . $e->getMessage(), 500);
+        }
+    }
+
     /** "Any agent when login can see his commission monthly" — self-scoped, no permission gate needed. */
     public function myCommission(Request $request)
     {

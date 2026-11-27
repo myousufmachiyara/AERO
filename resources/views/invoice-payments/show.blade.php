@@ -23,13 +23,11 @@
                     <div class="col-md-3 mb-2"><strong>Amount:</strong> {{ number_format($payment->amount, 2) }}</div>
                     <div class="col-md-3 mb-2"><strong>Mode:</strong> {{ ucfirst($payment->payment_mode) }}</div>
                     <div class="col-md-3 mb-2"><strong>Reference:</strong> {{ $payment->reference ?: '—' }}</div>
-                    @if($payment->travelInvoice)
+                    @if($payment->invoice())
                     <div class="col-md-4 mb-2">
                         <strong>Invoice:</strong>
-                        <a href="{{ route(($payment->travelInvoice->invoice_type === 'sale' ? 'ticket_invoices' : 'tour_invoices') . '.show', $payment->travelInvoice->id) }}">
-                            {{ $payment->travelInvoice->invoice_no }}
-                        </a>
-                        (Outstanding after this: {{ number_format($payment->travelInvoice->outstandingAmount(), 2) }})
+                        <a href="{{ $payment->invoiceUrl() }}">{{ $payment->invoiceNo() }}</a>
+                        (Outstanding after this: {{ number_format($payment->invoice()->outstandingAmount(), 2) }})
                     </div>
                     @endif
                     <div class="col-md-4 mb-2">

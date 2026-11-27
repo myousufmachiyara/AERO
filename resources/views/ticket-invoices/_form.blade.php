@@ -324,7 +324,7 @@
         </td>
         <td><select class="form-control form-control-sm f-pax-type"></select></td>
         <td>
-            <input type="text" class="form-control form-control-sm f-ticket-no" placeholder="220-1234-567-890" maxlength="16">
+            <input type="text" class="form-control form-control-sm f-ticket-no" placeholder="220-1234-567-890" maxlength="16" inputmode="numeric" title="13-digit ticket number">
         </td>
         <td class="text-end align-middle f-row-amount">0.00</td>
         <td class="text-center align-middle">
@@ -601,6 +601,11 @@
         }
 
         row.querySelector('.f-ticket-no').addEventListener('input', e => {
+            // Ticket # is exactly 13 digits — anything past the 13th digit is dropped as you type.
+            const typed = e.target.value.replace(/[^\d-]/g, '');
+            if (typed.replace(/\D/g, '').length > 13 || typed !== e.target.value) {
+                e.target.value = formatTicketNo(typed);
+            }
             e.target.dataset.autoFilled = '';
             if (row === wrap.querySelector('.ticket-row')) {
                 autoSequenceTicketNumbers();

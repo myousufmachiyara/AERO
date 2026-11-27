@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Models\Airline;
+use App\Models\Supplier;
 use App\Models\ChartOfAccounts;
 use App\Models\SubHeadOfAccounts;
 use App\Models\TicketInvoiceLedgerEntry;
@@ -31,24 +31,13 @@ use Illuminate\Support\Facades\Log;
  *           deduction the company itself keeps on a voided or refunded
  *           one (client's own term for both — "PSF (company earning)").
  *           See TicketSaleInvoiceLine::effectivePsfIncome().
- *   2. Per distinct airline touched by this invoice, up to two vouchers,
- *      both landing on that same Airline ledger account so its balance
- *      nets automatically:
- *        a. Payable — Dr Ticket Cost, Cr Airline — what's actually owed
- *           to the airline: base cost (fare+tax+APT — deliberately
- *           excluding PSF, which is the company's own fee, not the
- *           airline's) on every active ticket, plus the airline's own
- *           cut of the deduction on a voided or refunded one. See
- *           TicketSaleInvoiceLine::effectiveAirlinePayable().
- *        b. Receivable — Dr Airline, Cr Airline Commission Income — the
- *           commission earned on active tickets, net of WHT (WHT is
- *           folded into the net receivable rather than tracked as its
- *           own recoverable-tax account — a deliberate scope
- *           simplification, easy to split out later if a separate WHT
- *           ledger is wanted).
- *      Posted as two separate vouchers (not netted into one) so both
- *      sides stay individually auditable; either is skipped if its
- *      amount rounds to zero.
+ *   2. Per supplier on the invoice (client fix, Nov 2026: the ticket
+ *      payable is to the SUPPLIER picked on the line, not the airline):
+ *        a. Dr Ticket Cost / Cr Supplier — fare + tax + APT on active
+ *           tickets; on a refunded/voided ticket everything the customer
+ *           is still charged (both deductions), so it leaves no profit.
+ *        b. Dr Supplier / Cr Airline Commission Income — commission less
+ *           WHT on active tickets.
  *
  * Every voucher this creates is recorded in ticket_invoice_ledger_entries
  * so Unpost can find and reverse exactly those entries, never more.
@@ -67,6 +56,10 @@ class TicketInvoicePostingService
         }
 
         $lines = $invoice->lines()->get();
+
+        foreach ($lines as $l) {
+            $this->supplierFor($l->supplier_id); // every ticket needs a supplier with a ledger account
+        }
 
         DB::transaction(function () use ($invoice, $lines, $customer) {
             $ticketSalesTotal = round($lines->sum(fn ($l) => $l->effectiveTicketSalesIncome()), 2);
@@ -120,20 +113,17 @@ class TicketInvoicePostingService
                 ]);
             }
 
-            $byAirline = $lines->filter(fn ($l) => $l->airline_id)->groupBy('airline_id');
-
-            foreach ($byAirline as $airlineId => $group) {
-                $payable = round($group->sum(fn ($l) => $l->effectiveAirlinePayable()), 2);
+            // Ticket cost and commission sit with the SUPPLIER picked on each
+            // line (client fix, Nov 2026: "payable will be to supplier not airline").
+            foreach ($lines->groupBy('supplier_id') as $supplierId => $group) {
+                $payable = round($group->sum(fn ($l) => $l->effectiveSupplierPayable()), 2);
                 $receivable = round($group->sum(fn ($l) => $l->effectiveNetCommission()), 2);
 
                 if ($payable <= 0.001 && $receivable <= 0.001) {
                     continue;
                 }
 
-                $airline = Airline::find($airlineId);
-                if (!$airline || !$airline->chart_of_account_id) {
-                    throw new \RuntimeException("Airline '{$airline?->name}' has no ledger account yet — re-save the airline record first.");
-                }
+                $supplier = $this->supplierFor($supplierId ?: null);
 
                 if ($payable > 0.001) {
                     $costAccount = $this->systemAccount(
@@ -145,17 +135,16 @@ class TicketInvoicePostingService
                         'voucher_type' => 'journal',
                         'date' => $invoice->effectiveAdjustmentDate()->format('Y-m-d'),
                         'ac_dr_sid' => $costAccount->id,
-                        'ac_cr_sid' => $airline->chart_of_account_id,
+                        'ac_cr_sid' => $supplier->chart_of_account_id,
                         'amount' => $payable,
                         'reference' => $invoice->invoice_no,
-                        'description' => "Ticket Sale Invoice {$invoice->invoice_no} — ticket cost payable to {$airline->name}",
+                        'description' => "Ticket Sale Invoice {$invoice->invoice_no} — ticket cost payable to {$supplier->name}",
                     ]);
 
                     TicketInvoiceLedgerEntry::create([
                         'ticket_sale_invoice_id' => $invoice->id,
                         'voucher_id' => $voucher->id,
                         'entry_type' => TicketInvoiceLedgerEntry::TYPE_AIRLINE_PAYABLE,
-                        'airline_id' => $airlineId,
                         'amount' => $payable,
                     ]);
                 }
@@ -169,18 +158,17 @@ class TicketInvoicePostingService
                     $voucher = Voucher::create([
                         'voucher_type' => 'journal',
                         'date' => $invoice->effectiveAdjustmentDate()->format('Y-m-d'),
-                        'ac_dr_sid' => $airline->chart_of_account_id,
+                        'ac_dr_sid' => $supplier->chart_of_account_id,
                         'ac_cr_sid' => $commissionAccount->id,
                         'amount' => $receivable,
                         'reference' => $invoice->invoice_no,
-                        'description' => "Ticket Sale Invoice {$invoice->invoice_no} — commission receivable from {$airline->name}",
+                        'description' => "Ticket Sale Invoice {$invoice->invoice_no} — commission receivable from {$supplier->name}",
                     ]);
 
                     TicketInvoiceLedgerEntry::create([
                         'ticket_sale_invoice_id' => $invoice->id,
                         'voucher_id' => $voucher->id,
                         'entry_type' => TicketInvoiceLedgerEntry::TYPE_AIRLINE_COMMISSION,
-                        'airline_id' => $airlineId,
                         'amount' => $receivable,
                     ]);
                 }
@@ -269,12 +257,9 @@ class TicketInvoicePostingService
         $costAccount = fn () => $this->systemAccount(config('travel.ticket_cost_expense_subhead_name'), config('travel.ticket_cost_expense_account_name'));
         $commAccount = fn () => $this->systemAccount(config('travel.airline_commission_income_subhead_name'), config('travel.airline_commission_income_account_name'));
 
-        $airline = $line->airline_id ? Airline::find($line->airline_id) : null;
-        if ($airline && !$airline->chart_of_account_id) {
-            throw new \RuntimeException("Airline '{$airline->name}' has no ledger account yet — re-save the airline record first.");
-        }
+        $supplier = $this->supplierFor($line->supplier_id);
 
-        DB::transaction(function () use ($invoice, $line, $asActive, $kind, $date, $label, $customer, $airline, $salesAccount, $psfAccount, $costAccount, $commAccount) {
+        DB::transaction(function () use ($invoice, $line, $asActive, $kind, $date, $label, $customer, $supplier, $salesAccount, $psfAccount, $costAccount, $commAccount) {
             $cust = $customer->chart_of_account_id;
 
             // ── 1. Reversal (credit customer / airline-side unwinds) ──
@@ -283,12 +268,10 @@ class TicketInvoicePostingService
             $this->entry($invoice, $line, $kind, $date, $psfAccount()->id, $cust,
                 $asActive->effectivePsfIncome(), "{$label} — reversal of PSF", 'rev_customer_psf');
 
-            if ($airline) {
-                $this->entry($invoice, $line, $kind, $date, $airline->chart_of_account_id, $costAccount()->id,
-                    $asActive->effectiveAirlinePayable(), "{$label} — reversal of ticket cost payable to {$airline->name}", 'rev_airline_payable', $airline->id);
-                $this->entry($invoice, $line, $kind, $date, $commAccount()->id, $airline->chart_of_account_id,
-                    $asActive->effectiveNetCommission(), "{$label} — reversal of commission from {$airline->name}", 'rev_airline_commission', $airline->id);
-            }
+            $this->entry($invoice, $line, $kind, $date, $supplier->chart_of_account_id, $costAccount()->id,
+                $asActive->effectiveSupplierPayable(), "{$label} — reversal of ticket cost payable to {$supplier->name}", 'rev_airline_payable');
+            $this->entry($invoice, $line, $kind, $date, $commAccount()->id, $supplier->chart_of_account_id,
+                $asActive->effectiveNetCommission(), "{$label} — reversal of commission from {$supplier->name}", 'rev_airline_commission');
 
             // ── 2. Charges retained after refund/void (debit) ──
             $this->entry($invoice, $line, $kind, $date, $cust, $salesAccount()->id,
@@ -296,9 +279,38 @@ class TicketInvoicePostingService
             $this->entry($invoice, $line, $kind, $date, $cust, $psfAccount()->id,
                 $line->effectivePsfIncome(), "{$label} — company deduction (PSF)", TicketInvoiceLedgerEntry::TYPE_CUSTOMER_PSF);
 
-            if ($airline) {
-                $this->entry($invoice, $line, $kind, $date, $costAccount()->id, $airline->chart_of_account_id,
-                    $line->effectiveAirlinePayable(), "{$label} — supplier deduction payable to {$airline->name}", TicketInvoiceLedgerEntry::TYPE_AIRLINE_PAYABLE, $airline->id);
+            $this->entry($invoice, $line, $kind, $date, $costAccount()->id, $supplier->chart_of_account_id,
+                $line->effectiveSupplierPayable(), "{$label} — {$kind} charges payable to {$supplier->name}", TicketInvoiceLedgerEntry::TYPE_AIRLINE_PAYABLE);
+        });
+    }
+
+    /** The line's supplier, refusing to post without one (or without its ledger account). */
+    protected function supplierFor(?int $supplierId): Supplier
+    {
+        $supplier = $supplierId ? Supplier::find($supplierId) : null;
+        if (!$supplier) {
+            throw new \RuntimeException('Every ticket needs a supplier before it can be posted — pick the supplier on the invoice.');
+        }
+        if (!$supplier->chart_of_account_id) {
+            throw new \RuntimeException("Supplier '{$supplier->name}' has no ledger account yet — re-save the supplier record first.");
+        }
+
+        return $supplier;
+    }
+
+    /**
+     * Revert a refund or void (client fix, Nov 2026). On a posted invoice
+     * this removes the reversal + charge vouchers that adjustment wrote,
+     * which puts every ledger back exactly where the original Post left it.
+     * Must be called BEFORE the line is set back to active.
+     */
+    public function revertLineAdjustment(TicketSaleInvoice $invoice, TicketSaleInvoiceLine $line): void
+    {
+        DB::transaction(function () use ($invoice, $line) {
+            $entries = $invoice->ledgerEntries()->where('ticket_sale_invoice_line_id', $line->id)->with('voucher')->get();
+            foreach ($entries as $entry) {
+                $entry->voucher?->delete();
+                $entry->delete();
             }
         });
     }

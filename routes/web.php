@@ -135,6 +135,8 @@ Route::middleware(['auth'])->group(function () {
         Route::get('accounts', [AccountsReportController::class, 'accounts'])->name('accounts');
         Route::get('customer-statement/pdf', [AccountsReportController::class, 'customerStatementPdf'])
             ->middleware('check.permission:reports.accounts')->name('customer_statement_pdf');
+        Route::get('vendor-statement/pdf', [AccountsReportController::class, 'vendorStatementPdf'])
+            ->middleware('check.permission:reports.accounts')->name('vendor_statement_pdf');
 
         // Travel Agency — Phase 6: Vendor / Sales / Accounting report suites
         Route::get('travel-vendor', [TravelVendorReportController::class, 'index'])
@@ -166,6 +168,7 @@ Route::middleware(['auth'])->group(function () {
         Route::patch('/{id}/unpost', [TicketSaleInvoiceController::class, 'unpost'])->middleware('check.permission:ticket_invoices.edit')->name('unpost');
         Route::post('/{invoice}/lines/{line}/refund', [TicketSaleInvoiceController::class, 'refundLine'])->middleware('check.permission:ticket_invoices.edit')->name('lines.refund');
         Route::post('/{invoice}/lines/{line}/void', [TicketSaleInvoiceController::class, 'voidLine'])->middleware('check.permission:ticket_invoices.edit')->name('lines.void');
+        Route::post('/{invoice}/lines/{line}/revert', [TicketSaleInvoiceController::class, 'revertLine'])->middleware('check.permission:ticket_invoices.edit')->name('lines.revert');
         Route::post('/{invoice}/lines/bulk-refund', [TicketSaleInvoiceController::class, 'bulkRefundLines'])->middleware('check.permission:ticket_invoices.edit')->name('lines.bulk_refund');
         Route::post('/{invoice}/lines/bulk-void', [TicketSaleInvoiceController::class, 'bulkVoidLines'])->middleware('check.permission:ticket_invoices.edit')->name('lines.bulk_void');
     });

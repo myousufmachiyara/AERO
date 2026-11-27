@@ -85,6 +85,26 @@ class TourInvoiceE2ETest extends TestCase
         ], $over);
     }
 
+    /** A posted Ticket Sale Invoice of 2 tickets from $this->supplier (each: total 1,125, supplier net 1,025). */
+    protected function postedTicketInvoice(?int $customerId = null): \App\Models\TicketSaleInvoice
+    {
+        $t = fn ($pax, $no) => [
+            'pax_name' => $pax, 'pax_type' => 'adult', 'pnr' => 'TKT1', 'ticket_no' => $no,
+            'trip_type' => 'one_way', 'leg1_from' => 'KHI', 'leg1_to' => 'DXB', 'supplier_id' => $this->supplier->id,
+            'fare_amount' => 1000, 'tax_amount' => 100, 'apt_percent' => 2, 'apt_input_mode' => 'percent',
+            'commission_percent' => 10, 'commission_input_mode' => 'percent', 'wht_amount' => 5, 'wht_input_mode' => 'amount',
+            'psf_percent' => 1.5, 'psf_input_mode' => 'percent', 'psf_basis' => 'fare', 'discount_amount' => 10, 'discount_input_mode' => 'amount',
+        ];
+        $this->postJson(route('ticket_invoices.store'), [
+            'invoice_date' => '2026-11-20', 'customer_id' => $customerId ?? $this->customer->id,
+            'lines' => [$t('Kamran', '2209999999991'), $t('Nadia', '2209999999992')],
+        ])->assertOk();
+        $inv = \App\Models\TicketSaleInvoice::with('lines')->latest('id')->first();
+        $this->patch(route('ticket_invoices.post', $inv->id))->assertSessionHas('success');
+
+        return $inv->fresh('lines');
+    }
+
     protected function createFull(): TravelInvoice
     {
         $this->postJson(route('tour_invoices.store'), $this->fullPayload())->assertOk()->assertJsonStructure(['redirect']);
@@ -214,8 +234,8 @@ class TourInvoiceE2ETest extends TestCase
     protected function assertReferencePosting(): void
     {
         $this->assertEquals(10440, $this->balance($this->customer->chart_of_account_id), 'Customer owes the full receivable.');
-        $this->assertEquals(-6250, $this->balance($this->supplier->chart_of_account_id), 'Supplier: hotel 3,200 + transport 600 + visa 2,250 + other 200.');
-        $this->assertEquals(-2050, $this->balance($this->airline->chart_of_account_id), 'Airline: cost 2,240 less commission 190 (ticket # 220... = Lufthansa).');
+        $this->assertEquals(-8300, $this->balance($this->supplier->chart_of_account_id), 'Supplier: tickets 2,240 − commission 190 + hotel 3,200 + transport 600 + visa 2,250 + other 200.');
+        $this->assertEquals(0, $this->balance($this->airline->chart_of_account_id), 'Ticket cost goes to the line supplier, not the airline.');
         $this->assertEquals(-2240, $this->balance($this->systemAccountId('ticket_sales_income_account_name')));
         $this->assertEquals(-100, $this->balance($this->systemAccountId('psf_income_account_name')));
         $this->assertEquals(-190, $this->balance($this->systemAccountId('airline_commission_income_account_name')));
@@ -334,7 +354,7 @@ class TourInvoiceE2ETest extends TestCase
 
         $this->assertEquals(6000 - 5000, $this->balance($this->cashAccountId));
         $this->assertEquals(10440 - 6000, $this->balance($this->customer->chart_of_account_id)); // invoice Dr, receipt Cr
-        $this->assertEquals(-6250 + 5000, $this->balance($this->supplier->chart_of_account_id)); // cost Cr, payment Dr
+        $this->assertEquals(-8300 + 5000, $this->balance($this->supplier->chart_of_account_id)); // cost Cr, payment Dr
         $this->assertBooksBalance();
 
         $inv->refresh();
@@ -404,6 +424,41 @@ class TourInvoiceE2ETest extends TestCase
         $this->get(route('tour_invoices.show', $inv->id))->assertOk()->assertDontSee('+ Record Receipt');
     }
 
+    public function test_payment_07_receipt_against_a_ticket_sale_invoice(): void
+    {
+        $inv = $this->postedTicketInvoice();
+        $tour = $this->createFull();
+
+        // The invoice dropdown data carries both invoice types for the customer.
+        $this->get(route('invoice_payments.create', ['direction' => 'receipt', 'customer_id' => $this->customer->id, 'ticket_sale_invoice_id' => $inv->id]))
+            ->assertOk()->assertSee($inv->invoice_no)->assertSee($tour->invoice_no)->assertSee('"ref":"ticket:' . $inv->id . '"', false)
+            ->assertSee('"ticket:' . $inv->id . '"', false);
+
+        $this->post(route('invoice_payments.store'), [
+            'direction' => 'receipt', 'customer_id' => $this->customer->id, 'invoice_ref' => 'ticket:' . $inv->id,
+            'cash_bank_account_id' => $this->cashAccountId, 'payment_date' => '2026-11-21', 'amount' => 1000, 'payment_mode' => 'cash',
+        ])->assertSessionHasNoErrors();
+        $p = InvoicePayment::latest('id')->first();
+        $this->assertSame($inv->id, $p->ticket_sale_invoice_id);
+        $this->assertNull($p->travel_invoice_id);
+        $this->assertEquals(1250, $inv->fresh()->outstandingAmount());
+        $this->assertStringContainsString($inv->invoice_no, $p->voucher->description);
+        $this->get(route('invoice_payments.show', $p->id))->assertOk()->assertSee($inv->invoice_no)->assertSee('1,250.00');
+        $this->get(route('invoice_payments.print', $p->id))->assertOk()->assertSee($inv->invoice_no)->assertSee('1,250.00');
+        $this->get(route('ticket_invoices.show', $inv->id))->assertOk()->assertSee('Record Receipt');
+
+        // Another customer's ticket invoice is refused.
+        $other = \App\Models\Customer::factory()->create();
+        $this->post(route('invoice_payments.store'), [
+            'direction' => 'receipt', 'customer_id' => $other->id, 'invoice_ref' => 'ticket:' . $inv->id,
+            'cash_bank_account_id' => $this->cashAccountId, 'payment_date' => '2026-11-21', 'amount' => 10, 'payment_mode' => 'cash',
+        ])->assertSessionHasErrors('invoice_ref');
+        $this->post(route('invoice_payments.store'), [
+            'direction' => 'receipt', 'customer_id' => $this->customer->id, 'invoice_ref' => 'bogus',
+            'cash_bank_account_id' => $this->cashAccountId, 'payment_date' => '2026-11-21', 'amount' => 10, 'payment_mode' => 'cash',
+        ])->assertSessionHasErrors('invoice_ref');
+    }
+
     public function test_payment_05_validation(): void
     {
         $inv = $this->createFull();
@@ -464,6 +519,70 @@ class TourInvoiceE2ETest extends TestCase
         $this->assertEquals($this->balance($this->customer->chart_of_account_id), $s['summary']['net']);
     }
 
+    public function test_report_03_vendor_statement_matches_the_supplier_ledger(): void
+    {
+        $tour = $this->createFull();
+        $this->patch(route('tour_invoices.status', $tour->id), ['status' => 'confirmed']);
+        $tickets = $this->postedTicketInvoice();
+        $refunded = $tickets->lines->first();
+        $this->postJson(route('ticket_invoices.lines.refund', [$tickets->id, $refunded->id]), [
+            'refund_date' => '2026-11-22', 'refund_fare_amount' => 1000, 'refund_tax_amount' => 100,
+            'refund_deduction_supplier' => 30, 'refund_deduction_company' => 20,
+        ])->assertOk();
+        $this->pay($tour, 'payment', 5000);
+
+        $s = app(\App\Services\VendorStatementService::class)->build($this->supplier->fresh(), '2026-11-01', '2026-11-30');
+        $this->assertCount(4, $s['tickets'], '2 tour tickets + 2 Ticket Sale tickets.');
+        $this->assertEquals(4100, $s['tickets']->sum('net'));
+        $this->assertEquals(3200, $s['services']['hotel']->sum('net'));
+        $this->assertEquals(600, $s['services']['transport']->sum('net'));
+        $this->assertEquals(2250, $s['services']['visa']->sum('net'));
+        $this->assertEquals(200, $s['services']['other']->sum('net'));
+        $this->assertCount(1, $s['credits']);
+        $this->assertEquals(['original' => 1025.0, 'kept' => 75.0, 'net' => 950.0], array_intersect_key($s['credits'][0], array_flip(['original', 'kept', 'net'])));
+        $this->assertEquals(5000, $s['summary']['payments']);
+        $this->assertEquals(10350, $s['summary']['purchases']);
+        $this->assertEquals(4400, $s['summary']['net']);
+        $this->assertEquals(-$this->balance($this->supplier->chart_of_account_id), $s['summary']['net'], 'Net payable = supplier ledger balance.');
+
+        // Next month opens with what is still owed.
+        $next = app(\App\Services\VendorStatementService::class)->build($this->supplier->fresh(), '2026-12-01', '2026-12-31');
+        $this->assertEquals(4400, $next['summary']['opening']);
+
+        $this->get(route('reports.accounts', ['tab' => 'vendor_statement', 'supplier_id' => $this->supplier->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']))
+            ->assertOk()->assertSee('Vendor Account Statement')->assertSee('Refund / Void Credits')->assertSee('Net Payable')
+            ->assertSee('4,400.00')->assertSee('Kiswa Tower')->assertSee('Kamran');
+        $pdf = $this->get(route('reports.vendor_statement_pdf', ['supplier_id' => $this->supplier->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']));
+        $pdf->assertOk()->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF', $pdf->getContent());
+
+        // Paying more than owed shows a red negative balance.
+        $this->pay($tour, 'payment', 10000);
+        $this->get(route('reports.accounts', ['tab' => 'vendor_statement', 'supplier_id' => $this->supplier->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']))
+            ->assertSee('color:#c0392b; font-weight:bold;">-5,600.00', false);
+    }
+
+    public function test_report_04_customer_statement_hides_psf_and_shows_negative_balance_in_red(): void
+    {
+        $tickets = $this->postedTicketInvoice();
+        $url = route('reports.accounts', ['tab' => 'customer_statement', 'customer_id' => $this->customer->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']);
+        $s = app(\App\Services\CustomerStatementService::class)->build($this->customer->fresh(), '2026-11-01', '2026-11-30');
+        $row = $s['sections']['ticket']->first();
+        $this->assertArrayNotHasKey('sp', $row);
+        $this->assertEquals(1015, $row['fare'], 'PSF 15 is folded into the fare; fare + taxes − KB still = net.');
+        $this->assertEquals($row['net'], $row['fare'] + $row['taxes'] - $row['kb']);
+        $this->get($url)->assertOk()->assertDontSee('<th class="text-end">SP</th>', false)->assertSee('2,250.00');
+
+        // Customer pays more than owed → balance below zero, printed with a minus in red.
+        $this->post(route('invoice_payments.store'), [
+            'direction' => 'receipt', 'customer_id' => $this->customer->id, 'invoice_ref' => 'ticket:' . $tickets->id,
+            'cash_bank_account_id' => $this->cashAccountId, 'payment_date' => '2026-11-21', 'amount' => 3000, 'payment_mode' => 'cash',
+        ])->assertSessionHasNoErrors();
+        $this->get($url)->assertSee('color:#c0392b; font-weight:bold;">-750.00', false);
+        $pdf = $this->get(route('reports.customer_statement_pdf', ['customer_id' => $this->customer->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']));
+        $pdf->assertOk();
+    }
+
     public function test_report_02_travel_vendor_sales_and_accounting_pages(): void
     {
         $inv = $this->createFull();
@@ -473,7 +592,7 @@ class TourInvoiceE2ETest extends TestCase
         $range = ['from_date' => '2026-11-01', 'to_date' => '2026-11-30'];
 
         $this->get(route('reports.travel_vendor', $range))->assertOk()->assertSee($this->supplier->name)
-            ->assertSee('6,250.00')->assertSee('5,000.00')->assertSee('1,250.00');
+            ->assertSee('8,300.00')->assertSee('5,000.00')->assertSee('3,300.00');
         $this->get(route('reports.travel_vendor', $range + ['tab' => 'complaints']))->assertOk();
         $this->get(route('reports.travel_vendor', $range + ['tab' => 'spend']))->assertOk()->assertSee('3,200.00');
 
@@ -484,7 +603,7 @@ class TourInvoiceE2ETest extends TestCase
         $this->get(route('reports.travel_sales', $range + ['tab' => 'by_customer']))->assertOk()->assertSee('Vacations Gala');
 
         $this->get(route('reports.travel_accounts', $range))->assertOk()->assertSee('4,440.00');
-        $this->get(route('reports.travel_accounts', $range + ['tab' => 'payables']))->assertOk()->assertSee('1,250.00');
+        $this->get(route('reports.travel_accounts', $range + ['tab' => 'payables']))->assertOk()->assertSee('3,300.00');
         $this->get(route('reports.travel_accounts', $range + ['tab' => 'payments_register']))->assertOk()
             ->assertSee('6,000.00')->assertSee('5,000.00');
     }

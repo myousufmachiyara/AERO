@@ -67,13 +67,13 @@ class TravelReportData
     }
 
     /**
-     * Tour Invoice lines payable to a supplier — as posted: a ticket with an
-     * airline is owed to the airline, not to the line's supplier.
+     * Tour Invoice lines payable to a supplier — as posted: every line with
+     * a supplier, tickets included (ticket cost is owed to the supplier).
      */
     public static function supplierLines(string $from, string $to): Collection
     {
         return self::tourLines($from, $to)->load('ticketDetail')
-            ->filter(fn ($l) => $l->supplier_id && !($l->service_type === 'ticket' && $l->ticketDetail?->airline_id))
+            ->filter(fn ($l) => (bool) $l->supplier_id)
             ->values();
     }
 

@@ -95,35 +95,40 @@ class TicketSaleInvoice extends Model
     }
 
     /**
-     * Net owed to the airline(s), exactly as the posted vouchers carry it:
-     * Σ (fare + tax + APT, or the supplier deduction on a refund/void)
-     * − Σ (commission − WHT).
+     * Net owed to the supplier(s), exactly as the posted vouchers carry it:
+     * Σ (fare + tax + APT on active tickets, or everything the customer is
+     * still charged on a refunded/voided one) − Σ (commission − WHT).
      */
     public function getTotalPayableAttribute(): float
     {
-        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveAirlinePayable() - $l->effectiveNetCommission()), 2);
+        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveSupplierPayable() - $l->effectiveNetCommission()), 2);
     }
 
     /**
-     * Agency income = Receivable − net airline payable
-     * = PSF − Discount + Commission − WHT on active tickets (plus the
-     * company's deductions on refunded/voided ones) — the same profit the
-     * ledger shows once the invoice is posted.
+     * Agency income = Receivable − net supplier payable
+     * = PSF − Discount + Commission − WHT on active tickets; refunded and
+     * voided tickets add nothing — the same profit the ledger shows once
+     * the invoice is posted.
      */
     public function getTotalIncomeAttribute(): float
     {
-        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveReceivable() - $l->effectiveAirlinePayable() + $l->effectiveNetCommission()), 2);
+        return round($this->lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveIncome()), 2);
     }
 
-    /**
-     * Ticket Sale Invoice isn't wired into the Phase 5 Payments module yet
-     * (no travel_invoice_id-equivalent link), so every invoice is treated
-     * as fully unpaid for reporting purposes until that integration is
-     * built — a disclosed limitation, not a computed figure.
-     */
+    /** Receipts / supplier payments recorded against this invoice (Customer Payment Voucher). */
+    public function payments()
+    {
+        return $this->hasMany(InvoicePayment::class);
+    }
+
+    public function receivedAmount(): float
+    {
+        return (float) $this->payments()->where('direction', 'receipt')->sum('amount');
+    }
+
     public function outstandingAmount(): float
     {
-        return (float) $this->total_amount;
+        return round((float) $this->total_amount - $this->receivedAmount(), 2);
     }
 
     /**
@@ -134,7 +139,10 @@ class TicketSaleInvoice extends Model
      */
     public function recalculateTotals(): void
     {
-        $lines = $this->lines()->get();
+        $all = $this->lines()->get();
+        // Fees and commission count only on active tickets — a refunded or
+        // voided ticket earns nothing (client fix, Nov 2026).
+        $lines = $all->filter(fn (TicketSaleInvoiceLine $l) => $l->isActive());
 
         $this->total_fare = $lines->sum('fare_amount');
         $this->total_tax = $lines->sum('tax_amount');
@@ -143,7 +151,7 @@ class TicketSaleInvoice extends Model
         $this->total_wht = $lines->sum('wht_amount');
         $this->total_psf = $lines->sum('psf_amount');
         $this->total_discount = $lines->sum('discount_amount');
-        $this->total_amount = $lines->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveReceivable());
+        $this->total_amount = $all->sum(fn (TicketSaleInvoiceLine $l) => $l->effectiveReceivable());
         $this->save();
     }
 }

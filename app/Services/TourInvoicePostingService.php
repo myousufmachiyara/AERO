@@ -23,9 +23,10 @@ use Illuminate\Support\Facades\Log;
  *   Ticket (Ticket Sale layout) — exactly as a posted Ticket Sale Invoice:
  *     Dr Customer         / Cr Ticket Sales                (total − PSF)
  *     Dr Customer         / Cr PSF Income                  (PSF)
- *     Dr Ticket Cost      / Cr Airline                     (fare + tax + APT)
- *     Dr Airline          / Cr Airline Commission Income   (commission − WHT)
- *     The party is the ticket's airline; if it has none, the line's supplier.
+ *     Dr Ticket Cost      / Cr Supplier                    (fare + tax + APT)
+ *     Dr Supplier         / Cr Airline Commission Income   (commission − WHT)
+ *     The party is the line's supplier (as on the Ticket Sale Invoice); an
+ *     older line with no supplier falls back to its airline.
  *
  *   Hotel / Transport / Visa / Other (and older Receivable/Payable tickets):
  *     Dr Customer         / Cr <Service> Sales             (Receivable, PKR)
@@ -75,12 +76,13 @@ class TourInvoicePostingService
                 $d = $line->ticketDetail;
 
                 if ($type === 'ticket' && $d && $d->hasTicketSalePricing()) {
-                    [$kind, $partyId] = $d->airline_id ? ['airline', (int) $d->airline_id] : ['supplier', (int) $line->supplier_id];
+                    // Ticket cost is owed to the line's supplier, as on the Ticket Sale Invoice (client fix, Nov 2026).
+                    [$kind, $partyId] = $line->supplier_id ? ['supplier', (int) $line->supplier_id] : ['airline', (int) $d->airline_id];
                     $sales['ticket'] = ($sales['ticket'] ?? 0) + max(0, (float) $d->total_amount - (float) $d->psf_amount);
                     $psf += (float) $d->psf_amount;
                     $key = "ticket|{$kind}|{$partyId}";
                     $costs[$key] = ($costs[$key] ?? 0) + (float) $d->fare_amount + (float) $d->tax_amount + (float) $d->apt_charges;
-                    $ckey = "{$kind}|{$partyId}";
+                    $ckey = "ticket|{$kind}|{$partyId}";
                     $commission[$ckey] = ($commission[$ckey] ?? 0) + (float) $d->commission_amount - (float) $d->wht_amount;
                     continue;
                 }
@@ -90,7 +92,7 @@ class TourInvoicePostingService
                     $key = "{$type}|supplier|{$line->supplier_id}";
                     $costs[$key] = ($costs[$key] ?? 0) + (float) $line->payable_l_amount;
                     $chargesNet = round((float) $line->income_l_amount - ((float) $line->receivable_l_amount - (float) $line->payable_l_amount), 2);
-                    $ckey = "supplier|{$line->supplier_id}";
+                    $ckey = "charges|supplier|{$line->supplier_id}";
                     $commission[$ckey] = ($commission[$ckey] ?? 0) + $chargesNet;
                 }
             }
@@ -117,12 +119,11 @@ class TourInvoicePostingService
             }
 
             foreach ($commission as $key => $amount) {
-                [$kind, $partyId] = explode('|', $key);
+                [$service, $kind, $partyId] = explode('|', $key);
                 [$partyAccount, $partyName] = $this->party($kind, (int) $partyId);
-                $incomeAccount = $kind === 'airline'
+                $incomeAccount = $service === 'ticket'
                     ? $this->systemAccount(config('travel.airline_commission_income_subhead_name'), config('travel.airline_commission_income_account_name'), 'revenue')
                     : $this->systemAccount('Other Income', 'Supplier Commission Income', 'revenue');
-                $service = $kind === 'airline' ? 'ticket' : 'charges';
 
                 if ($amount > 0) {
                     $this->entry($invoice, $service, TravelInvoiceLedgerEntry::TYPE_COMMISSION, $date,
@@ -166,12 +167,12 @@ class TourInvoicePostingService
             $d = $line->ticketDetail;
 
             if ($line->service_type === 'ticket' && $d && $d->hasTicketSalePricing()) {
-                if ($d->airline_id) {
-                    if (!Airline::whereKey($d->airline_id)->value('chart_of_account_id')) {
-                        $problems[] = "{$label}: the airline has no ledger account — re-save the airline record.";
+                if (!$line->supplier_id) {
+                    if (!$d->airline_id) {
+                        $problems[] = "{$label}: pick the supplier so the ticket cost can be posted.";
+                    } elseif (!Airline::whereKey($d->airline_id)->value('chart_of_account_id')) {
+                        $problems[] = "{$label}: pick the supplier so the ticket cost can be posted.";
                     }
-                } elseif (!$line->supplier_id) {
-                    $problems[] = "{$label}: pick the airline (or a supplier) so the cost can be posted.";
                 }
                 continue;
             }

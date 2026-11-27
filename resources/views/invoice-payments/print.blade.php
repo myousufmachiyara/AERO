@@ -11,7 +11,7 @@
     <div><span>Voucher No</span> <strong>{{ $voucherNo }}</strong></div>
     <div><span>Date</span> {{ $payment->payment_date->format('d/m/Y') }}</div>
     <div><span>{{ $isReceipt ? 'Received From' : 'Paid To' }}</span> <strong>{{ $party }}</strong></div>
-    <div><span>Against Invoice</span> {{ $payment->travelInvoice->invoice_no ?? '—' }}</div>
+    <div><span>Against Invoice</span> {{ $payment->invoiceNo() ?? '—' }}</div>
     <div><span>Mode</span> {{ ucfirst($payment->payment_mode) }}{{ $cashBank ? ' — ' . $cashBank->name : '' }}</div>
     <div><span>{{ $payment->payment_mode === 'cheque' ? 'Cheque No' : 'Reference' }}</span> {{ $payment->reference ?: '—' }}</div>
 @endsection
@@ -22,7 +22,7 @@
         <tbody>
             <tr>
                 <td>
-                    {{ $isReceipt ? 'Amount received' : 'Amount paid' }}{{ $payment->travelInvoice ? ' against invoice ' . $payment->travelInvoice->invoice_no : '' }}
+                    {{ $isReceipt ? 'Amount received' : 'Amount paid' }}{{ $payment->invoiceNo() ? ' against invoice ' . $payment->invoiceNo() : '' }}
                     @if($payment->remarks)<div class="muted">{{ $payment->remarks }}</div>@endif
                 </td>
                 <td class="num"><strong>{{ number_format((float) $payment->amount, 2) }}</strong></td>
@@ -31,10 +31,10 @@
     </table>
     <div class="words">{{ \App\Support\AmountInWords::rupees((float) $payment->amount) }}</div>
 
-    @if($isReceipt && $payment->travelInvoice)
-        @php($inv = $payment->travelInvoice)
+    @if($isReceipt && $payment->invoice())
+        @php($inv = $payment->invoice())
         <table class="totals">
-            <tr><td>Invoice Total</td><td class="num">{{ number_format((float) $inv->total_receivable, 2) }}</td></tr>
+            <tr><td>Invoice Total</td><td class="num">{{ number_format((float) ($inv->total_receivable ?? $inv->total_amount), 2) }}</td></tr>
             <tr><td>Total Received to date</td><td class="num">{{ number_format($inv->receivedAmount(), 2) }}</td></tr>
             <tr class="grand"><td>Balance Due</td><td class="num">{{ number_format($inv->outstandingAmount(), 2) }}</td></tr>
         </table>

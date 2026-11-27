@@ -55,7 +55,7 @@
                                 <td>{{ $p->payment_date->format('d/m/Y') }}</td>
                                 <td><span class="badge {{ $p->direction === 'receipt' ? 'bg-success' : 'bg-warning text-dark' }}">{{ ucfirst($p->direction) }}</span></td>
                                 <td>{{ $p->customer->name ?? $p->supplier->name ?? '—' }}</td>
-                                <td>{{ $p->travelInvoice->invoice_no ?? '—' }}</td>
+                                <td>{{ $p->invoiceNo() ?? '—' }}</td>
                                 <td>{{ number_format($p->amount, 2) }}</td>
                                 <td>{{ ucfirst($p->payment_mode) }}</td>
                                 <td>{{ $p->reference ?: '—' }}</td>

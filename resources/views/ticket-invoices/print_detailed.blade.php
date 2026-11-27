@@ -63,14 +63,14 @@
                             refund fare {{ number_format($line->refund_fare_amount, 2) }}, refund tax {{ number_format($line->refund_tax_amount, 2) }},
                             supplier deduction {{ number_format($line->refund_deduction_supplier, 2) }},
                             {{ config('travel.company_name') }} deduction {{ number_format($line->refund_deduction_company, 2) }},
-                            returned {{ number_format($line->refund_amount, 2) }}, retained profit {{ number_format($line->refund_profit, 2) }}
+                            returned {{ number_format($line->refund_amount, 2) }}, still charged {{ number_format($line->refund_profit, 2) }} (payable to supplier, no profit)
                         </td></tr>
                         @elseif($line->status === 'voided')
                         <tr class="table-light"><td colspan="24" class="text-muted">
                             Voided {{ optional($line->void_date)->format('d/m/Y') }} —
                             supplier deduction {{ number_format($line->void_deduction_supplier, 2) }},
                             {{ config('travel.company_name') }} deduction {{ number_format($line->void_deduction_company, 2) }},
-                            total {{ number_format($line->void_total_deduction, 2) }}
+                            charged to customer {{ number_format($line->void_total_deduction, 2) }} (payable to supplier, no profit)
                         </td></tr>
                         @endif
                         @endforeach

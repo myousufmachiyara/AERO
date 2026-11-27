@@ -16,6 +16,9 @@ class CustomerStatementPdf extends TCPDF
     /** @var array Output of CustomerStatementService::build() */
     public array $statement = [];
 
+    /** Page-1 title; the Vendor Statement sets "Vendor Account Statement". */
+    public string $docTitle = 'Customer Account Statement';
+
     public function Header(): void
     {
         if ($this->getPage() > 1) {
@@ -52,7 +55,7 @@ class CustomerStatementPdf extends TCPDF
         $this->Cell(0, 4, config('travel.company_license_line'), 0, 1, 'C');
         $this->Ln(2);
         $this->SetFont('helvetica', '', 14);
-        $this->Cell(0, 8, 'Customer Account Statement', 0, 1, 'C');
+        $this->Cell(0, 8, $this->docTitle, 0, 1, 'C');
         $this->Ln(2);
 
         $this->SetFont('helvetica', '', 8);
@@ -68,7 +71,7 @@ class CustomerStatementPdf extends TCPDF
     /** Customer name / phone / address / NTN on the left, print time on the right. */
     protected function customerBlock(): void
     {
-        $c = $this->statement['customer'];
+        $c = $this->statement['party'] ?? $this->statement['customer'];
         $y = $this->GetY();
 
         $this->SetFont('helvetica', '', 7.5);
@@ -76,7 +79,7 @@ class CustomerStatementPdf extends TCPDF
         $this->Cell(120, 3.6, (string) $c->name, 0, 2);
         $this->Cell(120, 3.6, 'Phone: ' . ($c->phone ?? ''), 0, 2);
         $this->Cell(120, 3.6, 'Address: ' . ($c->address ?? ''), 0, 2);
-        $this->Cell(120, 3.6, 'Sale Tax Number:', 0, 2);
+        $this->Cell(120, 3.6, 'Sale Tax Number: ' . ($c->ntn ?? ''), 0, 2);
         $afterY = $this->GetY();
 
         $this->SetXY(140, $y + 3);

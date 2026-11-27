@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ChartOfAccounts;
 use App\Models\Customer;
 use App\Models\Supplier;
+use App\Models\TicketSaleInvoice;
 use App\Models\TravelInvoice;
 use App\Models\Voucher;
 use App\Models\InvoicePayment;
@@ -25,7 +26,7 @@ class InvoicePaymentController extends Controller
 {
     public function index(Request $request)
     {
-        $query = InvoicePayment::with('customer', 'supplier', 'travelInvoice')->latest('payment_date');
+        $query = InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'ticketSaleInvoice')->latest('payment_date');
 
         if ($request->filled('direction') && $request->direction !== 'all') {
             $query->where('direction', $request->direction);
@@ -50,7 +51,9 @@ class InvoicePaymentController extends Controller
             'prefillDirection' => $request->get('direction', 'receipt'),
             'prefillCustomerId' => $request->integer('customer_id') ?: null,
             'prefillSupplierId' => $request->integer('supplier_id') ?: null,
-            'prefillInvoiceId' => $request->integer('travel_invoice_id') ?: null,
+            'prefillInvoiceRef' => $request->integer('ticket_sale_invoice_id')
+                ? 'ticket:' . $request->integer('ticket_sale_invoice_id')
+                : ($request->integer('travel_invoice_id') ? 'tour:' . $request->integer('travel_invoice_id') : null),
         ]));
     }
 
@@ -82,7 +85,7 @@ class InvoicePaymentController extends Controller
 
             $invoiceNo = !empty($validated['travel_invoice_id'])
                 ? TravelInvoice::whereKey($validated['travel_invoice_id'])->value('invoice_no')
-                : null;
+                : (!empty($validated['ticket_sale_invoice_id']) ? TicketSaleInvoice::whereKey($validated['ticket_sale_invoice_id'])->value('invoice_no') : null);
 
             $voucher = Voucher::create([
                 'voucher_type' => $validated['direction'] === 'receipt' ? 'receipt' : 'payment',
@@ -93,8 +96,8 @@ class InvoicePaymentController extends Controller
                 'reference' => $validated['reference'] ?? null,
                 'remarks' => $validated['remarks'] ?? null,
                 'description' => $validated['direction'] === 'receipt'
-                    ? 'Travel: customer receipt' . (!empty($validated['travel_invoice_id']) ? ' against invoice ' . $invoiceNo : '')
-                    : 'Travel: supplier payment' . (!empty($validated['travel_invoice_id']) ? ' re. invoice ' . $invoiceNo : ''),
+                    ? 'Travel: customer receipt' . ($invoiceNo ? ' against invoice ' . $invoiceNo : '')
+                    : 'Travel: supplier payment' . ($invoiceNo ? ' re. invoice ' . $invoiceNo : ''),
             ]);
 
             $payment = InvoicePayment::create([
@@ -103,6 +106,7 @@ class InvoicePaymentController extends Controller
                 'customer_id' => $validated['customer_id'] ?? null,
                 'supplier_id' => $validated['supplier_id'] ?? null,
                 'travel_invoice_id' => $validated['travel_invoice_id'] ?? null,
+                'ticket_sale_invoice_id' => $validated['ticket_sale_invoice_id'] ?? null,
                 'payment_date' => $validated['payment_date'],
                 'amount' => $validated['amount'],
                 'payment_mode' => $validated['payment_mode'],
@@ -124,7 +128,7 @@ class InvoicePaymentController extends Controller
 
     public function show(string $id)
     {
-        $payment = InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'voucher', 'creator')->findOrFail($id);
+        $payment = InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'ticketSaleInvoice', 'voucher', 'creator')->findOrFail($id);
 
         return view('invoice-payments.show', compact('payment'));
     }
@@ -170,7 +174,7 @@ class InvoicePaymentController extends Controller
 
     public function print(string $id)
     {
-        $payment = InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'voucher.debitAccount', 'voucher.creditAccount', 'creator')->findOrFail($id);
+        $payment = InvoicePayment::with('customer', 'supplier', 'travelInvoice', 'ticketSaleInvoice.lines', 'voucher.debitAccount', 'voucher.creditAccount', 'creator')->findOrFail($id);
 
         return view('invoice-payments.print', compact('payment'));
     }
@@ -185,18 +189,66 @@ class InvoicePaymentController extends Controller
         return [
             'customers' => Customer::where('is_active', true)->orderBy('name')->get(),
             'suppliers' => Supplier::where('is_active', true)->orderBy('name')->get(),
-            'invoices' => TravelInvoice::with('customer')->where('status', '!=', 'cancelled')->latest('invoice_date')->get(),
+            'invoices' => $this->invoiceOptions(),
             'cashBankAccounts' => $cashBankAccounts,
         ];
     }
 
+    /**
+     * Every invoice a payment can be recorded against — Ticket Sale
+     * Invoices and Tour Invoices (not cancelled), newest first. The form
+     * filters them to the chosen customer (receipt) or to the invoices
+     * that use the chosen supplier (payment).
+     */
+    protected function invoiceOptions(): array
+    {
+        $tickets = TicketSaleInvoice::with('customer', 'lines:id,ticket_sale_invoice_id,supplier_id,status,total_amount,refund_profit,void_total_deduction')
+            ->withSum(['payments as received' => fn ($q) => $q->where('direction', 'receipt')], 'amount')
+            ->latest('invoice_date')->latest('id')->get()
+            ->map(fn ($i) => [
+                'ref' => 'ticket:' . $i->id, 'no' => $i->invoice_no, 'type' => 'Ticket',
+                'date' => $i->invoice_date->format('d/m/Y'), 'sort' => $i->invoice_date->format('Y-m-d') . sprintf('%010d', $i->id),
+                'customer_id' => $i->customer_id, 'customer' => $i->customer->name ?? '—',
+                'suppliers' => $i->lines->pluck('supplier_id')->filter()->unique()->values()->all(),
+                'outstanding' => round((float) $i->total_amount - (float) $i->received, 2),
+            ]);
+
+        $tours = TravelInvoice::with('customer', 'serviceLines:id,linkable_id,linkable_type,supplier_id')
+            ->withSum(['payments as received' => fn ($q) => $q->where('direction', 'receipt')], 'amount')
+            ->where('status', '!=', 'cancelled')->latest('invoice_date')->latest('id')->get()
+            ->map(fn ($i) => [
+                'ref' => 'tour:' . $i->id, 'no' => $i->invoice_no, 'type' => 'Tour',
+                'date' => $i->invoice_date->format('d/m/Y'), 'sort' => $i->invoice_date->format('Y-m-d') . sprintf('%010d', $i->id),
+                'customer_id' => $i->customer_id, 'customer' => $i->customer->name ?? '—',
+                'suppliers' => $i->serviceLines->pluck('supplier_id')->filter()->unique()->values()->all(),
+                'outstanding' => round((float) $i->total_receivable - (float) $i->received, 2),
+            ]);
+
+        return $tickets->concat($tours)->sortByDesc('sort')->values()->all();
+    }
+
     protected function validated(Request $request): array
     {
+        // The form sends one "invoice_ref" ("ticket:12" / "tour:7"); older
+        // links and callers may still send travel_invoice_id.
+        $refKey = $request->has('invoice_ref') ? 'invoice_ref' : 'travel_invoice_id';
+        if ($request->filled('invoice_ref')) {
+            [$kind, $id] = array_pad(explode(':', (string) $request->input('invoice_ref'), 2), 2, null);
+            $request->merge([
+                'travel_invoice_id' => $kind === 'tour' ? $id : null,
+                'ticket_sale_invoice_id' => $kind === 'ticket' ? $id : null,
+            ]);
+            if (!in_array($kind, ['tour', 'ticket'], true) || !ctype_digit((string) $id)) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['invoice_ref' => 'Pick an invoice from the list.']);
+            }
+        }
+
         $data = $request->validate([
             'direction' => ['required', Rule::in(InvoicePayment::DIRECTIONS)],
             'customer_id' => 'nullable|required_if:direction,receipt|exists:customers,id',
             'supplier_id' => 'nullable|required_if:direction,payment|exists:suppliers,id',
             'travel_invoice_id' => 'nullable|exists:travel_invoices,id',
+            'ticket_sale_invoice_id' => 'nullable|exists:ticket_sale_invoices,id',
             'cash_bank_account_id' => 'required|exists:chart_of_accounts,id',
             'payment_date' => 'required|date',
             'amount' => 'required|numeric|min:0.01',
@@ -218,17 +270,19 @@ class InvoicePaymentController extends Controller
         }
 
         // A receipt against an invoice must come from that invoice's customer.
-        if (($data['direction'] ?? null) === 'receipt' && !empty($data['travel_invoice_id'])) {
-            $invoiceCustomer = TravelInvoice::whereKey($data['travel_invoice_id'])->value('customer_id');
+        if (($data['direction'] ?? null) === 'receipt' && (!empty($data['travel_invoice_id']) || !empty($data['ticket_sale_invoice_id']))) {
+            $invoiceCustomer = !empty($data['travel_invoice_id'])
+                ? TravelInvoice::whereKey($data['travel_invoice_id'])->value('customer_id')
+                : TicketSaleInvoice::whereKey($data['ticket_sale_invoice_id'])->value('customer_id');
             if ((int) $invoiceCustomer !== (int) ($data['customer_id'] ?? 0)) {
-                $errors['travel_invoice_id'] = 'This invoice belongs to a different customer.';
+                $errors[$refKey] = 'This invoice belongs to a different customer.';
             }
         }
 
         // No money in or out against a cancelled invoice.
         if (!empty($data['travel_invoice_id'])
             && TravelInvoice::whereKey($data['travel_invoice_id'])->value('status') === 'cancelled') {
-            $errors['travel_invoice_id'] = 'This invoice is cancelled — payments cannot be recorded against it.';
+            $errors[$refKey] = 'This invoice is cancelled — payments cannot be recorded against it.';
         }
 
         if ($errors) {

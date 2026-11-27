@@ -27,8 +27,8 @@ class TravelSalesReportController extends Controller
         ])->concat(TravelReportData::ticketSaleLines($from, $to)->map(fn ($l) => [
             'type' => 'ticket',
             'recv' => $l->effectiveReceivable(),
-            'pay' => $l->effectiveAirlinePayable() - $l->effectiveNetCommission(),
-            'income' => $l->effectiveReceivable() - $l->effectiveAirlinePayable() + $l->effectiveNetCommission(),
+            'pay' => $l->effectiveSupplierPayable() - $l->effectiveNetCommission(),
+            'income' => $l->effectiveIncome(),
         ]));
         $order = ['ticket', 'hotel', 'transport', 'visa', 'other'];
         $byService = $rows->groupBy('type')

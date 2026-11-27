@@ -58,7 +58,7 @@
                     <a href="{{ route('ticket_invoices.edit', $invoice->id) }}" class="btn btn-primary"><i class="fa fa-edit"></i> Edit</a>
                     <form action="{{ route('ticket_invoices.post', $invoice->id) }}" method="POST" style="display:inline;">
                         @csrf @method('PATCH')
-                        <button type="submit" class="btn btn-success" onclick="return confirm('Post this invoice? This will hit the customer and airline ledgers.');">
+                        <button type="submit" class="btn btn-success" onclick="return confirm('Post this invoice? This will hit the customer and supplier ledgers.');">
                             <i class="fa fa-check"></i> Post
                         </button>
                     </form>
@@ -69,6 +69,11 @@
                             <i class="fa fa-undo"></i> Unpost
                         </button>
                     </form>
+                    @endif
+                    @endcan
+                    @can('invoice_payments.create')
+                    @if($invoice->outstandingAmount() > 0)
+                    <a href="{{ route('invoice_payments.create', ['direction' => 'receipt', 'customer_id' => $invoice->customer_id, 'ticket_sale_invoice_id' => $invoice->id]) }}" class="btn btn-success"><i class="fa fa-hand-holding-usd"></i> Record Receipt</a>
                     @endif
                     @endcan
                 </div>
@@ -220,6 +225,14 @@
                                     <button type="button" class="btn btn-sm btn-outline-info" onclick="ticketInvoiceToggleRow('refund-{{ $line->id }}')">Refund</button>
                                     <button type="button" class="btn btn-sm btn-outline-danger" onclick="ticketInvoiceToggleRow('void-{{ $line->id }}')">Void</button>
                                     @endcan
+                                    @else
+                                    @can('ticket_invoices.edit')
+                                    <form action="{{ route('ticket_invoices.lines.revert', [$invoice->id, $line->id]) }}" method="POST" data-ajax-form class="d-inline"
+                                          data-confirm="Revert the {{ $line->status === 'refunded' ? 'refund' : 'void' }} of this ticket? It becomes active again with its original amounts{{ $invoice->isPosted() ? ' and the ledgers go back to the original posting' : '' }}.">
+                                        @csrf
+                                        <button type="submit" class="btn btn-sm btn-outline-warning" title="Undo the {{ $line->status === 'refunded' ? 'refund' : 'void' }}"><i class="fas fa-undo"></i> Revert {{ $line->status === 'refunded' ? 'Refund' : 'Void' }}</button>
+                                    </form>
+                                    @endcan
                                     @endif
                                 </td>
                             </tr>
@@ -237,14 +250,14 @@
                                         Supplier deduction {{ number_format($line->refund_deduction_supplier, 2) }},
                                         {{ config('travel.company_name') }} deduction {{ number_format($line->refund_deduction_company, 2) }},
                                         Returned to customer {{ number_format($line->refund_amount, 2) }},
-                                        Retained profit {{ number_format($line->refund_profit, 2) }}.
+                                        Still charged to customer {{ number_format($line->refund_profit, 2) }} (all payable to the supplier — no profit on a refunded ticket).
                                     </div>
                                     @else
                                     <div class="alert alert-secondary mb-0 py-2">
                                         Voided on {{ optional($line->void_date)->format('d/m/Y') }} —
                                         Supplier deduction {{ number_format($line->void_deduction_supplier, 2) }},
                                         {{ config('travel.company_name') }} deduction {{ number_format($line->void_deduction_company, 2) }},
-                                        Total receivable from customer {{ number_format($line->void_total_deduction, 2) }}.
+                                        Charges {{ number_format($line->void_total_deduction, 2) }} deducted from the customer (returned {{ number_format((float) $line->total_amount - (float) $line->void_total_deduction, 2) }} of {{ number_format((float) $line->total_amount, 2) }}); all charges payable to the supplier — no profit on a voided ticket.
                                     </div>
                                     @endif
                                 </td>
@@ -259,7 +272,7 @@
                 <div class="ajax-form-errors alert alert-danger py-2 m-2" style="display:none;"></div>
                 <div id="bulk-refund-panel" class="card-body border-top" style="display:none;">
                     <h6>Bulk Refund <span id="bulk-refund-count-label"></span></h6>
-                    @if($invoice->isPosted())<div class="alert alert-info py-2 small mb-2">This invoice is posted — each refund also posts reversal + charge vouchers to the customer and airline ledgers.</div>@endif
+                    @if($invoice->isPosted())<div class="alert alert-info py-2 small mb-2">This invoice is posted — each refund also posts reversal + charge vouchers to the customer and supplier ledgers.</div>@endif
                     <p class="text-muted small mb-2">Every selected ticket is refunded in full (its own fare + tax), with the same supplier/company deduction split applied to each one. Need a different amount for one specific ticket? Use that ticket's own Refund button instead.</p>
                     <div class="row">
                         <div class="col-md-3 mb-2">
@@ -360,7 +373,7 @@
             <div class="alert alert-warning mb-0">Tickets can only be voided on the same day they were issued ({{ $invoice->invoice_date->format('d/m/Y') }}). Use Refund instead.</div>
             @else
             <form action="{{ route('ticket_invoices.lines.' . $kind, [$invoice->id, $line->id]) }}" method="POST" data-ajax-form
-                  data-confirm="{{ ucfirst($kind) }} this ticket?{{ $invoice->isPosted() ? ' Reversal and charge vouchers will be posted to the ledgers.' : '' }} This cannot be undone.">
+                  data-confirm="{{ ucfirst($kind) }} this ticket?{{ $invoice->isPosted() ? ' Reversal and charge vouchers will be posted to the ledgers.' : '' }} It can be reverted later.">
                 @csrf
                 <div class="ajax-form-errors alert alert-danger py-2" style="display:none;"></div>
                 <div class="row">
@@ -459,6 +472,8 @@
                     <tr><td class="text-end pe-3">Total PSF:</td><td>{{ number_format($invoice->total_psf, 2) }}</td></tr>
                     <tr><td class="text-end pe-3">Total Discount:</td><td>{{ number_format($invoice->total_discount, 2) }}</td></tr>
                     <tr class="fw-bold"><td class="text-end pe-3">Grand Total (Customer):</td><td>{{ number_format($invoice->total_amount, 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Payable to Supplier (net of commission):</td><td>{{ number_format($invoice->total_payable, 2) }}</td></tr>
+                    <tr class="fw-bold"><td class="text-end pe-3">Income:</td><td>{{ number_format($invoice->total_income, 2) }}</td></tr>
                 </table>
                 @php($summaryLines = $invoice->lines->where('status', 'active'))
                 <table class="table table-sm w-auto mb-0 ms-4">
@@ -554,10 +569,10 @@
             if (preview.dataset.kind === 'refund') {
                 const ded = val('refund_deduction_supplier') + val('refund_deduction_company');
                 const refundAmt = val('refund_fare_amount') + val('refund_tax_amount') - ded;
-                preview.innerHTML = 'Returned to customer: <strong>' + fmt(refundAmt) + '</strong> &nbsp;|&nbsp; Still receivable from customer: <strong>' + fmt(total - refundAmt) + '</strong>';
+                preview.innerHTML = 'Returned to customer: <strong>' + fmt(refundAmt) + '</strong> &nbsp;|&nbsp; Still charged to customer: <strong>' + fmt(total - refundAmt) + '</strong> (payable to the supplier — no profit)';
             } else {
                 const ded = val('void_deduction_supplier') + val('void_deduction_company');
-                preview.innerHTML = 'Ticket amounts become 0 — receivable from customer: <strong>' + fmt(ded) + '</strong> (was ' + fmt(total) + ')';
+                preview.innerHTML = 'Charges deducted from customer: <strong>' + fmt(ded) + '</strong> &nbsp;|&nbsp; Returned to customer: <strong>' + fmt(total - ded) + '</strong> (ticket was ' + fmt(total) + ') &nbsp;|&nbsp; Charges go to the supplier — no profit';
             }
         }
 
@@ -621,7 +636,7 @@
             return false;
         }
         const verb = kind === 'refund' ? 'Refund' : 'Void';
-        return confirm(verb + ' ' + checked + ' selected ticket(s)? This cannot be undone.');
+        return confirm(verb + ' ' + checked + ' selected ticket(s)? Each can be reverted later.');
     }
 </script>
 @endsection

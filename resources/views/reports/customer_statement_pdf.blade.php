@@ -5,6 +5,10 @@
 --}}
 @php
     $n = fn ($v) => number_format((float) $v, 2);
+    // Balances below zero print with a minus sign in red (client fix, Nov 2026).
+    $bal = fn ($v) => (float) $v < -0.004
+        ? '<span style="color:#c0392b; font-weight:bold;">-' . number_format(abs((float) $v), 2) . '</span>'
+        : number_format((float) $v, 2);
     $d = fn ($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d/m/Y') : '';
     $e = fn ($v) => e((string) ($v ?? ''));
     $sec = $s['sections'];
@@ -33,10 +37,10 @@
     <tr><td colspan="10" style="{{ $title }}">Ticket Booking</td></tr>
     <tr>
         <th width="9%" style="{{ $th }}">Date</th><th width="10%" style="{{ $th }}">Invoice</th>
-        <th width="13%" style="{{ $th }}">Ticket No.</th><th width="19%" style="{{ $th }}">Passenger</th>
+        <th width="13%" style="{{ $th }}">Ticket No.</th><th width="25%" style="{{ $th }}">Passenger</th>
         <th width="13%" style="{{ $th }}">Sector</th>
         <th width="8%" class="r" style="{{ $th }}">Fare</th><th width="8%" class="r" style="{{ $th }}">Taxes</th>
-        <th width="6%" class="r" style="{{ $th }}">SP</th><th width="5%" class="r" style="{{ $th }}">KB</th>
+        <th width="5%" class="r" style="{{ $th }}">KB</th>
         <th width="9%" class="r" style="{{ $th }}">Net</th>
     </tr>
 </thead>
@@ -45,20 +49,18 @@
         <td width="9%" style="{{ $td }}">{{ $r['show_date'] ? $r['date_label'] : '' }}</td>
         <td width="10%" style="{{ $td }}">{{ $r['show_invoice'] ? $e($r['invoice']) : '' }}</td>
         <td width="13%" style="{{ $td }}">{{ $e($r['ticket_no']) }}</td>
-        <td width="19%" style="{{ $td }}">{{ $e($r['passenger']) }}{{ $r['voided'] ? ' (VOID)' : '' }}</td>
+        <td width="25%" style="{{ $td }}">{{ $e($r['passenger']) }}{{ $r['voided'] ? ' (VOID)' : '' }}</td>
         <td width="13%" style="{{ $td }}">{{ $e($r['sector']) }}</td>
         <td width="8%" class="r" style="{{ $td }}">{{ $n($r['fare']) }}</td>
         <td width="8%" class="r" style="{{ $td }}">{{ $n($r['taxes']) }}</td>
-        <td width="6%" class="r" style="{{ $td }}">{{ $n($r['sp']) }}</td>
         <td width="5%" class="r" style="{{ $td }}">{{ $n($r['kb']) }}</td>
         <td width="9%" class="r" style="{{ $td }}">{{ $n($r['net']) }}</td>
     </tr>
     @endforeach
     <tr nobr="true">
-        <td width="64%" class="r" colspan="5">Total</td>
+        <td width="70%" class="r" colspan="5">Total</td>
         <td width="8%" class="r">{{ $n($sec['ticket']->sum('fare')) }}</td>
         <td width="8%" class="r">{{ $n($sec['ticket']->sum('taxes')) }}</td>
-        <td width="6%" class="r">{{ $n($sec['ticket']->sum('sp')) }}</td>
         <td width="5%" class="r">{{ $n($sec['ticket']->sum('kb')) }}</td>
         <td width="9%" class="r"><b>{{ $n($sec['ticket']->sum('net')) }}</b></td>
     </tr>
@@ -204,10 +206,10 @@
     <tr><td colspan="11" style="{{ $title }}">Ticket Booking</td></tr>
     <tr>
         <th width="9%" style="{{ $th }}">Date</th><th width="15%" style="{{ $th }}">Invoice</th>
-        <th width="12%" style="{{ $th }}">Ticket No.</th><th width="15%" style="{{ $th }}">Passenger</th>
+        <th width="12%" style="{{ $th }}">Ticket No.</th><th width="20%" style="{{ $th }}">Passenger</th>
         <th width="10%" style="{{ $th }}">Sector</th>
         <th width="7%" class="r" style="{{ $th }}">Fare</th><th width="7%" class="r" style="{{ $th }}">Taxes</th>
-        <th width="5%" class="r" style="{{ $th }}">SP</th><th width="5%" class="r" style="{{ $th }}">KB</th>
+        <th width="5%" class="r" style="{{ $th }}">KB</th>
         <th width="7%" class="r" style="{{ $th }}">CC</th><th width="8%" class="r" style="{{ $th }}">Net</th>
     </tr>
 </thead>
@@ -216,21 +218,19 @@
         <td width="9%" style="{{ $td }}">{{ $r['date_label'] }}</td>
         <td width="15%" style="{{ $td }}">{{ $e($r['invoice']) }}</td>
         <td width="12%" style="{{ $td }}">{{ $e($r['ticket_no']) }}</td>
-        <td width="15%" style="{{ $td }}">{{ $e($r['passenger']) }}</td>
+        <td width="20%" style="{{ $td }}">{{ $e($r['passenger']) }}</td>
         <td width="10%" style="{{ $td }}">{{ $e($r['sector']) }}</td>
         <td width="7%" class="r" style="{{ $td }}">{{ $n($r['fare']) }}</td>
         <td width="7%" class="r" style="{{ $td }}">{{ $n($r['taxes']) }}</td>
-        <td width="5%" class="r" style="{{ $td }}">{{ $n($r['sp']) }}</td>
         <td width="5%" class="r" style="{{ $td }}">{{ $n($r['kb']) }}</td>
         <td width="7%" class="r" style="{{ $td }}">{{ $n($r['cc']) }}</td>
         <td width="8%" class="r" style="{{ $td }}">{{ $n($r['net']) }}</td>
     </tr>
     @endforeach
     <tr nobr="true">
-        <td width="61%" class="r">Total</td>
+        <td width="66%" class="r">Total</td>
         <td width="7%" class="r">{{ $n($s['refunds']->sum('fare')) }}</td>
         <td width="7%" class="r">{{ $n($s['refunds']->sum('taxes')) }}</td>
-        <td width="5%" class="r">{{ $n($s['refunds']->sum('sp')) }}</td>
         <td width="5%" class="r">{{ $n($s['refunds']->sum('kb')) }}</td>
         <td width="7%" class="r">{{ $n($s['refunds']->sum('cc')) }}</td>
         <td width="8%" class="r"><b>{{ $n($s['refunds']->sum('net')) }}</b></td>
@@ -278,7 +278,7 @@
 {{-- ======================= CLOSING SUMMARY ======================= --}}
 <br><br>
 <table cellpadding="2.5" nobr="true">
-    <tr><td width="22%"></td><td width="28%">Opening Balance B/F</td><td width="28%" class="r">{{ $n($s['summary']['opening']) }}</td><td width="22%"></td></tr>
+    <tr><td width="22%"></td><td width="28%">Opening Balance B/F</td><td width="28%" class="r">{!! $bal($s['summary']['opening']) !!}</td><td width="22%"></td></tr>
     <tr><td></td><td>Add Sale Invoices</td><td class="r">{{ $n($s['summary']['sales']) }}</td><td></td></tr>
     <tr><td></td><td>Less Refund Invoices</td><td class="r">{{ $n($s['summary']['refunds']) }}</td><td></td></tr>
     <tr><td></td><td>Less Receipts</td><td class="r">{{ $n($s['summary']['receipts']) }}</td><td></td></tr>
@@ -286,7 +286,7 @@
     <tr>
         <td></td>
         <td style="border:0.3px solid #999;"><b>Net Balance</b></td>
-        <td class="r" style="border:0.3px solid #999;"><b>{{ $n($s['summary']['net']) }}</b></td>
+        <td class="r" style="border:0.3px solid #999;"><b>{!! $bal($s['summary']['net']) !!}</b></td>
         <td></td>
     </tr>
 </table>
