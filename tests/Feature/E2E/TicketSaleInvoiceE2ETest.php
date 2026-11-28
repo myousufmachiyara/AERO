@@ -433,6 +433,30 @@ class TicketSaleInvoiceE2ETest extends TestCase
 
     // ═══════════════════════ REVERT REFUND / VOID ═══════════════════════
 
+    public function test_summary_01_shows_sale_as_issued_then_refund_and_void_adjustments(): void
+    {
+        $inv = $this->createInvoice([$this->ticket('A', '2201111111111'), $this->ticket('B', '2201111111112'), $this->ticket('C', '2201111111113')]);
+        $this->patch(route('ticket_invoices.post', $inv->id));
+        [$a, $b] = $inv->lines;
+        $this->postJson(route('ticket_invoices.lines.refund', [$inv->id, $a->id]), $this->refundPayload())->assertOk();          // 1,050 back, 75 kept
+        $this->postJson(route('ticket_invoices.lines.void', [$inv->id, $b->id]), ['void_date' => '2026-11-20', 'void_deduction_supplier' => 5, 'void_deduction_company' => 5])->assertOk(); // 1,115 back, 10 kept
+        $inv = $inv->fresh('lines');
+
+        $this->assertEquals(3000, (float) $inv->total_fare, 'Totals are the sale as issued.');
+        $this->assertEquals(1125 + 75 + 10, (float) $inv->total_amount);
+        $this->get(route('ticket_invoices.show', $inv->id))->assertOk()
+            ->assertSee('Sale as issued')->assertSee('3,000.00')->assertSee('3,375.00')
+            ->assertSee('Less: Refunded to Customer')->assertSee('-1,050.00')
+            ->assertSee('Less: Voided, returned to Customer')->assertSee('-1,115.00')
+            ->assertSee('1 active · 1 refunded · 1 voided')
+            ->assertSee('1,210.00')
+            ->assertSee('-1,110.00')
+            ->assertSee('Final Receivable from Customer')->assertSee('Balance to receive')
+            ->assertSee('Final Payable to Supplier');
+        $this->get(route('ticket_invoices.print_detailed', $inv->id))->assertOk()
+            ->assertSee('Gross Sale (as issued)')->assertSee('3,375.00')->assertSee('1,210.00');
+    }
+
     public function test_revert_01_refund_on_posted_invoice_restores_the_original_posting(): void
     {
         $inv = $this->createInvoice([$this->ticket('A', '2201111111111'), $this->ticket('B', '2201111111112')]);

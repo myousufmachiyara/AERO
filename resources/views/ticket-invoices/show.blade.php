@@ -513,6 +513,46 @@
                     <tr class="fw-bold"><td class="text-end pe-3">Income:</td><td class="text-end">{{ number_format($invoice->total_income, 2) }}</td></tr>
                 </table>
             </div>
+            @php
+                // Final totals (client request, Nov 28): what the customer owes in total
+                // and what we owe each supplier in total, after refunds / voids.
+                $finalReceivable = (float) $invoice->total_amount;
+                $finalReceived = $invoice->receivedAmount();
+                $finalBalance = $finalReceivable - $finalReceived;
+                $finalBySupplier = $all->groupBy('supplier_id')->map(fn ($ls) => [
+                    'name' => optional($ls->first()->supplier)->name ?? '—',
+                    'amount' => $ls->sum(fn ($l) => $l->effectiveSupplierPayable()),
+                ])->filter(fn ($r) => abs($r['amount']) > 0.004);
+                $finalPayable = (float) $invoice->total_payable;
+            @endphp
+            <div class="card-footer bg-light">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100 bg-white">
+                            <div class="text-uppercase small text-muted fw-semibold mb-2">Final Receivable from Customer</div>
+                            <div class="d-flex justify-content-between"><span>{{ optional($invoice->customer)->name }}</span>
+                                <span class="fs-5 fw-bold">{!! \App\Support\Money::receivable($finalReceivable) !!}</span></div>
+                            <div class="d-flex justify-content-between small mt-1"><span class="text-muted">Received so far</span><span>{{ number_format($finalReceived, 2) }}</span></div>
+                            <div class="d-flex justify-content-between small fw-bold border-top pt-1 mt-1"><span>Balance to receive</span><span>{!! \App\Support\Money::receivable($finalBalance) !!}</span></div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100 bg-white">
+                            <div class="text-uppercase small text-muted fw-semibold mb-2">Final Payable to Supplier</div>
+                            @if($finalBySupplier->count() > 1)
+                                @foreach($finalBySupplier as $r)
+                                    <div class="d-flex justify-content-between small"><span>{{ $r['name'] }}</span><span>{!! \App\Support\Money::payable($r['amount']) !!}</span></div>
+                                @endforeach
+                                <div class="d-flex justify-content-between border-top pt-1 mt-1"><span class="fw-semibold">Total</span>
+                                    <span class="fs-5 fw-bold">{!! \App\Support\Money::payable($finalPayable) !!}</span></div>
+                            @else
+                                <div class="d-flex justify-content-between"><span>{{ optional($finalBySupplier->first())['name'] ?? optional(optional($all->first())->supplier)->name }}</span>
+                                    <span class="fs-5 fw-bold">{!! \App\Support\Money::payable($finalPayable) !!}</span></div>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            </div>
         </section>
     </div>
 </div>
