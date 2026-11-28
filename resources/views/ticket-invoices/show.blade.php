@@ -227,11 +227,8 @@
                                     @endcan
                                     @else
                                     @can('ticket_invoices.edit')
-                                    <form action="{{ route('ticket_invoices.lines.revert', [$invoice->id, $line->id]) }}" method="POST" data-ajax-form class="d-inline"
-                                          data-confirm="Revert the {{ $line->status === 'refunded' ? 'refund' : 'void' }} of this ticket? It becomes active again with its original amounts{{ $invoice->isPosted() ? ' and the ledgers go back to the original posting' : '' }}.">
-                                        @csrf
-                                        <button type="submit" class="btn btn-sm btn-outline-warning" title="Undo the {{ $line->status === 'refunded' ? 'refund' : 'void' }}"><i class="fas fa-undo"></i> Revert {{ $line->status === 'refunded' ? 'Refund' : 'Void' }}</button>
-                                    </form>
+                                    {{-- The revert form lives outside the bulk form (nested forms are not allowed); this button submits it via form="". --}}
+                                    <button type="submit" form="revert-form-{{ $line->id }}" class="btn btn-sm btn-outline-warning" title="Undo the {{ $line->status === 'refunded' ? 'refund' : 'void' }}"><i class="fas fa-undo"></i> Revert {{ $line->status === 'refunded' ? 'Refund' : 'Void' }}</button>
                                     @endcan
                                     @endif
                                 </td>
@@ -322,6 +319,15 @@
                 </div>
                 @endif
             </form>
+
+            @can('ticket_invoices.edit')
+            @foreach($invoice->lines->where('status', '!=', 'active') as $line)
+            <form id="revert-form-{{ $line->id }}" action="{{ route('ticket_invoices.lines.revert', [$invoice->id, $line->id]) }}" method="POST" data-ajax-form class="d-none"
+                  data-confirm="Revert the {{ $line->status === 'refunded' ? 'refund' : 'void' }} of ticket {{ $line->ticket_no }}? It becomes active again with its original amounts{{ $invoice->isPosted() ? ' and the ledgers go back to the original posting' : '' }}.">
+                @csrf
+            </form>
+            @endforeach
+            @endcan
         </section>
 
         @foreach($invoice->lines as $line)
