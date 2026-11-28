@@ -121,7 +121,7 @@
               <li><a class="nav-link" href="{{ route('quotations.index') }}">Quotations</a></li>
               @endcan
               @can('ticket_invoices.index')
-              <li><a class="nav-link" href="{{ route('ticket_invoices.index') }}">Sale Invoice (Tickets)</a></li>
+              <li><a class="nav-link" href="{{ route('ticket_invoices.index') }}">Ticket Invoice</a></li>
               @endcan
               {{-- <li><a class="nav-link" href="{{ route('ticket_invoices.my_commission') }}">My Commission</a></li> --}}
               @can('tour_invoices.index')
