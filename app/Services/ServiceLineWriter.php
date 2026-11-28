@@ -90,10 +90,12 @@ class ServiceLineWriter
             // Override receivable/payable/income here from the detail's
             // own rates so the stored totals (Show page, Summary tab)
             // match the dual-currency PSF shown live on the Transport tab.
-            if ($row['service_type'] === 'transport') {
+            // Hotel has the same dual Receivable/Payable rates (client fix, Nov 28:
+            // the statement showed the hotel amount before the exchange rate).
+            if (in_array($row['service_type'], ['transport', 'hotel', 'visa'], true)) {
                 $detail = $row['detail'] ?? [];
-                $recvRate = (float) ($detail['receivable_exchange_rate'] ?? 1);
-                $payRate = (float) ($detail['payable_exchange_rate'] ?? 1);
+                $recvRate = (float) ($detail['receivable_exchange_rate'] ?? $row['exchange_rate'] ?? 1);
+                $payRate = (float) ($detail['payable_exchange_rate'] ?? $row['exchange_rate'] ?? 1);
                 $line->receivable_l_amount = round(((float) ($row['receivable_f_amount'] ?? 0)) * $recvRate, 2);
                 $line->payable_l_amount = round(((float) ($row['payable_f_amount'] ?? 0)) * $payRate, 2);
                 $line->income_l_amount = round($line->receivable_l_amount - $line->payable_l_amount + $chargesTotal, 2);
@@ -310,6 +312,10 @@ class ServiceLineWriter
                     'apply_date' => $detail['apply_date'] ?? null,
                     'expiry_date' => $detail['expiry_date'] ?? null,
                     'reference_no' => $detail['reference_no'] ?? null,
+                    'receivable_currency' => $detail['receivable_currency'] ?? 'PKR',
+                    'receivable_exchange_rate' => $detail['receivable_exchange_rate'] ?? 1,
+                    'payable_currency' => $detail['payable_currency'] ?? 'PKR',
+                    'payable_exchange_rate' => $detail['payable_exchange_rate'] ?? 1,
                 ]);
                 break;
 

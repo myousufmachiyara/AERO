@@ -6,7 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class InvoiceVisaDetail extends Model
 {
-    protected $fillable = ['service_line_id', 'visa_type_id', 'apply_date', 'expiry_date', 'reference_no'];
+    protected $fillable = ['service_line_id', 'visa_type_id', 'apply_date', 'expiry_date', 'reference_no',
+        'receivable_currency', 'receivable_exchange_rate', 'payable_currency', 'payable_exchange_rate'];
 
     protected $casts = [
         'apply_date' => 'date',

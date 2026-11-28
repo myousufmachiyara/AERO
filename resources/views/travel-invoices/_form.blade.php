@@ -80,7 +80,7 @@
                     break;
                 case 'visa':
                     if ($line->visaDetail) {
-                        $detail = $line->visaDetail->only(['visa_type_id', 'reference_no']);
+                        $detail = $line->visaDetail->only(['visa_type_id', 'reference_no', 'receivable_currency', 'receivable_exchange_rate', 'payable_currency', 'payable_exchange_rate']);
                         $detail['apply_date'] = optional($line->visaDetail->apply_date)->format('Y-m-d');
                         $detail['expiry_date'] = optional($line->visaDetail->expiry_date)->format('Y-m-d');
                     }
@@ -828,11 +828,11 @@
                         </div>
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Exch. Rate</label>
-                            <input type="number" step="any" class="form-control visa-recv-rate not-persisted-field" value="1" oninput="recalcVisaFinance(this.closest('.line-card'))">
+                            <input type="number" step="any" name="lines[__IDX__][detail][receivable_exchange_rate]" class="form-control visa-recv-rate" value="1" oninput="recalcVisaFinance(this.closest('.line-card'))">
                         </div>
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Currency</label>
-                            <select class="form-control visa-recv-currency not-persisted-field">
+                            <select name="lines[__IDX__][detail][receivable_currency]" class="form-control visa-recv-currency">
                                 @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                             </select>
                         </div>
@@ -847,11 +847,11 @@
                         </div>
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Exch. Rate</label>
-                            <input type="number" step="any" class="form-control visa-pay-rate not-persisted-field" value="1" oninput="recalcVisaFinance(this.closest('.line-card'))">
+                            <input type="number" step="any" name="lines[__IDX__][detail][payable_exchange_rate]" class="form-control visa-pay-rate" value="1" oninput="recalcVisaFinance(this.closest('.line-card'))">
                         </div>
                         <div class="col-md-4 mb-2">
                             <label class="form-label">Currency</label>
-                            <select class="form-control visa-pay-currency not-persisted-field">
+                            <select name="lines[__IDX__][detail][payable_currency]" class="form-control visa-pay-currency">
                                 @foreach($currencies as $cur)<option value="{{ $cur->code }}" @selected($cur->code === 'PKR')>{{ $cur->code }}</option>@endforeach
                             </select>
                         </div>
