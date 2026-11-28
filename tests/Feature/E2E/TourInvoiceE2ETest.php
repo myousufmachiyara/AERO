@@ -105,9 +105,9 @@ class TourInvoiceE2ETest extends TestCase
         return $inv->fresh('lines');
     }
 
-    protected function createFull(): TravelInvoice
+    protected function createFull(array $over = []): TravelInvoice
     {
-        $this->postJson(route('tour_invoices.store'), $this->fullPayload())->assertOk()->assertJsonStructure(['redirect']);
+        $this->postJson(route('tour_invoices.store'), $this->fullPayload($over))->assertOk()->assertJsonStructure(['redirect']);
 
         return TravelInvoice::with('serviceLines.ticketDetail', 'serviceLines.hotelDetail.rooms', 'passengers')->latest('id')->firstOrFail();
     }
@@ -493,6 +493,61 @@ class TourInvoiceE2ETest extends TestCase
                 ->assertSee('Internal Copy')->assertSee($this->supplier->name)->assertSee('Payable')
                 ->assertSee('8,300.00')->assertSee('2,140.00');
         }
+    }
+
+    public function test_report_06_hotel_and_visa_use_their_exchange_rates_in_statements(): void
+    {
+        $inv = $this->createFull([
+            'lines' => [
+                2 => ['detail' => ['receivable_currency' => 'SAR', 'receivable_exchange_rate' => 75, 'payable_currency' => 'SAR', 'payable_exchange_rate' => 74]],
+                // the Visa tab sends no line-level rate, only its own two rates
+                4 => ['exchange_rate' => null, 'detail' => ['receivable_currency' => 'SAR', 'receivable_exchange_rate' => 76, 'payable_currency' => 'SAR', 'payable_exchange_rate' => 75]],
+            ],
+        ]);
+        $lines = $inv->fresh()->serviceLines->groupBy('service_type');
+        // Hotel: 4000 SAR × 75 to customer, 3200 SAR × 74 to supplier
+        $this->assertEquals(300000, (float) $lines['hotel'][0]->receivable_l_amount);
+        $this->assertEquals(236800, (float) $lines['hotel'][0]->payable_l_amount);
+        // Visa: 40 × 76, 30 × 75 and the rates are kept for editing
+        $this->assertEquals(3040, (float) $lines['visa'][0]->receivable_l_amount);
+        $this->assertEquals(2250, (float) $lines['visa'][0]->payable_l_amount);
+        $this->assertEquals(76, (float) $lines['visa'][0]->visaDetail->receivable_exchange_rate);
+
+        $c = app(CustomerStatementService::class)->build($this->customer->fresh(), '2026-11-01', '2026-11-30');
+        $this->assertEquals(300000, $c['sections']['hotel']->sum('net'));
+        $this->assertEquals(3040, $c['sections']['visa']->sum('net'));
+
+        $v = app(\App\Services\VendorStatementService::class)->build($this->supplier->fresh(), '2026-11-01', '2026-11-30');
+        $this->assertEquals(236800, $v['services']['hotel']->sum('payable'));
+        $this->assertEquals(2250, $v['services']['visa']->sum('payable'));
+
+        $this->get(route('tour_invoices.edit', $inv->id))->assertOk()
+            ->assertSee('"reference_no":"V-1","receivable_currency":"SAR","receivable_exchange_rate":76', false);
+    }
+
+    public function test_report_07_migration_repairs_hotel_lines_saved_before_the_rate_fix(): void
+    {
+        $inv = $this->createFull(['lines' => [2 => ['detail' => ['receivable_exchange_rate' => 75, 'payable_exchange_rate' => 74]]]]);
+        $this->patch(route('tour_invoices.status', $inv->id), ['status' => 'confirmed'])->assertSessionHas('success');
+        // Simulate an old, wrongly stored hotel line (foreign amount × 1), posted that way
+        $hotel = $inv->fresh()->serviceLines->firstWhere('service_type', 'hotel');
+        $hotel->update(['receivable_l_amount' => 4000, 'payable_l_amount' => 3200, 'income_l_amount' => 800]);
+        $posting = app(\App\Services\TourInvoicePostingService::class);
+        $posting->unpost($inv->fresh());
+        $posting->post($inv->fresh());
+
+        (require database_path('migrations/2026_11_28_100000_fix_hotel_line_exchange_rates.php'))->up();
+
+        $hotel->refresh();
+        $this->assertEquals(300000, (float) $hotel->receivable_l_amount);
+        $this->assertEquals(236800, (float) $hotel->payable_l_amount);
+        $this->assertEquals(63200, (float) $hotel->income_l_amount);
+        $this->assertTrue($posting->isPosted($inv->fresh()));
+        $c = app(CustomerStatementService::class)->build($this->customer->fresh(), '2026-11-01', '2026-11-30');
+        $this->assertEquals(300000, $c['sections']['hotel']->sum('net'));
+        $this->assertEquals((float) $inv->fresh()->total_receivable, $c['summary']['net']);
+        $vouchersTotal = $posting->vouchers($inv->fresh())->sum('amount');
+        $this->assertGreaterThan(300000, $vouchersTotal);
     }
 
     public function test_report_01_customer_statement_lists_every_service_and_the_payments(): void
