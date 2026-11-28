@@ -140,9 +140,11 @@ class TicketSaleInvoice extends Model
     public function recalculateTotals(): void
     {
         $all = $this->lines()->get();
-        // Fees and commission count only on active tickets — a refunded or
-        // voided ticket earns nothing (client fix, Nov 2026).
-        $lines = $all->filter(fn (TicketSaleInvoiceLine $l) => $l->isActive());
+        // Fare … discount are the figures AS ISSUED (every ticket, refunded or
+        // voided included) so the invoice summary shows the complete sale; the
+        // refund/void adjustments, what the customer still owes (total_amount)
+        // and the income are worked out per line (effective*()).
+        $lines = $all;
 
         $this->total_fare = $lines->sum('fare_amount');
         $this->total_tax = $lines->sum('tax_amount');

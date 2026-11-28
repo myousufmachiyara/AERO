@@ -78,22 +78,36 @@
                     <tfoot>
                         <tr class="fw-bold">
                             <td colspan="7" class="text-end">Totals</td>
-                            <td>{{ number_format($invoice->total_fare, 2) }}</td>
-                            <td>{{ number_format($invoice->total_tax, 2) }}</td>
+                            <td>{{ number_format($invoice->lines->sum('fare_amount'), 2) }}</td>
+                            <td>{{ number_format($invoice->lines->sum('tax_amount'), 2) }}</td>
                             <td></td>
-                            <td>{{ number_format($invoice->total_apt, 2) }}</td>
+                            <td>{{ number_format($invoice->lines->sum('apt_charges'), 2) }}</td>
                             <td></td>
-                            <td>{{ number_format($invoice->total_commission, 2) }}</td>
+                            <td>{{ number_format($invoice->lines->sum('commission_amount'), 2) }}</td>
                             <td></td>
-                            <td>{{ number_format($invoice->total_wht, 2) }}</td>
+                            <td>{{ number_format($invoice->lines->sum('wht_amount'), 2) }}</td>
                             <td></td>
-                            <td>{{ number_format($invoice->total_psf, 2) }}</td>
+                            <td>{{ number_format($invoice->lines->sum('psf_amount'), 2) }}</td>
                             <td></td>
-                            <td>{{ number_format($invoice->total_discount, 2) }}</td>
+                            <td>{{ number_format($invoice->lines->sum('discount_amount'), 2) }}</td>
                             <td colspan="3"></td>
                             <td></td>
                             <td>{!! \App\Support\Money::receivable($invoice->total_amount) !!}</td>
                         </tr>
+                        @php
+                            $pdRefunded = $invoice->lines->where('status', 'refunded');
+                            $pdVoided = $invoice->lines->where('status', 'voided');
+                        @endphp
+                        @if($pdRefunded->isNotEmpty() || $pdVoided->isNotEmpty())
+                        <tr><td colspan="23" class="text-end">Gross Sale (as issued)</td><td>{{ number_format($invoice->lines->sum(fn ($l) => (float) $l->total_amount), 2) }}</td></tr>
+                        @if($pdRefunded->isNotEmpty())
+                        <tr><td colspan="23" class="text-end">Less: Refunded to Customer</td><td>{!! \App\Support\Money::payable($pdRefunded->sum(fn ($l) => (float) $l->refund_amount)) !!}</td></tr>
+                        @endif
+                        @if($pdVoided->isNotEmpty())
+                        <tr><td colspan="23" class="text-end">Less: Voided, returned to Customer</td><td>{!! \App\Support\Money::payable($pdVoided->sum(fn ($l) => (float) $l->total_amount - (float) $l->void_total_deduction)) !!}</td></tr>
+                        @endif
+                        <tr class="fw-bold"><td colspan="23" class="text-end">Net Receivable (Customer)</td><td>{!! \App\Support\Money::receivable($invoice->total_amount) !!}</td></tr>
+                        @endif
                     </tfoot>
                 </table>
                 </div>

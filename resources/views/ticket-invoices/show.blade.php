@@ -432,7 +432,7 @@
         @endif
         @endforeach
 
-        @php($adjEntries = $invoice->ledgerEntries->sortBy('id'))
+        @php $adjEntries = $invoice->ledgerEntries->sortBy('id'); @endphp
         @if($adjEntries->isNotEmpty())
         <section class="card mb-3">
             <header class="card-header"><strong>Ledger Vouchers</strong> <span class="text-muted small">— posting, refund and void entries created by this invoice</span></header>
@@ -443,7 +443,7 @@
                     </thead>
                     <tbody>
                         @foreach($adjEntries as $entry)
-                        @php($v = $entry->voucher)
+                        @php $v = $entry->voucher; @endphp
                         <tr class="{{ $entry->adjustment ? ($entry->adjustment === 'refund' ? 'table-info' : 'table-secondary') : '' }}">
                             <td>{{ $v->id ?? '—' }}</td>
                             <td>{{ $v ? \Illuminate\Support\Carbon::parse($v->date)->format('d/m/Y') : '—' }}</td>
@@ -469,25 +469,48 @@
 
         <section class="card">
             <div class="card-body d-flex justify-content-end">
+                @php
+                    // Complete picture: the sale AS ISSUED (every ticket), then the
+                    // refund / void adjustments, then what is left (client fix, Nov 2026).
+                    $all = $invoice->lines;
+                    $refunded = $all->where('status', 'refunded');
+                    $voided = $all->where('status', 'voided');
+                    $active = $all->where('status', 'active');
+                    $gross = $all->sum(fn ($l) => (float) $l->total_amount);
+                    $refundBack = $refunded->sum(fn ($l) => (float) $l->refund_amount);
+                    $voidBack = $voided->sum(fn ($l) => (float) $l->total_amount - (float) $l->void_total_deduction);
+                    $chargesKept = $refunded->sum(fn ($l) => (float) $l->refund_deduction_supplier + (float) $l->refund_deduction_company)
+                        + $voided->sum(fn ($l) => (float) $l->void_total_deduction);
+                    $supplierGross = $all->sum(fn ($l) => $l->supplierNet());
+                @endphp
                 <table class="table table-sm w-auto mb-0">
-                    <tr><td class="text-end pe-3">Total Fare:</td><td>{{ number_format($invoice->total_fare, 2) }}</td></tr>
-                    <tr><td class="text-end pe-3">Total Tax:</td><td>{{ number_format($invoice->total_tax, 2) }}</td></tr>
-                    <tr><td class="text-end pe-3">Total APT:</td><td>{{ number_format($invoice->total_apt, 2) }}</td></tr>
-                    <tr><td class="text-end pe-3">Total Commission:</td><td>{{ number_format($invoice->total_commission, 2) }}</td></tr>
-                    <tr><td class="text-end pe-3">Total WHT:</td><td>{{ number_format($invoice->total_wht, 2) }}</td></tr>
-                    <tr><td class="text-end pe-3">Total PSF:</td><td>{{ number_format($invoice->total_psf, 2) }}</td></tr>
-                    <tr><td class="text-end pe-3">Total Discount:</td><td>{{ number_format($invoice->total_discount, 2) }}</td></tr>
-                    <tr class="fw-bold"><td class="text-end pe-3">Grand Total (Customer):</td><td>{!! \App\Support\Money::receivable($invoice->total_amount) !!}</td></tr>
-                    <tr><td class="text-end pe-3">Payable to Supplier (net of commission):</td><td>{!! \App\Support\Money::payable($invoice->total_payable) !!}</td></tr>
-                    <tr class="fw-bold"><td class="text-end pe-3">Income:</td><td>{{ number_format($invoice->total_income, 2) }}</td></tr>
+                    <tr><th colspan="2">Sale as issued <small class="text-muted fw-normal">({{ $all->count() }} ticket(s))</small></th></tr>
+                    <tr><td class="text-end pe-3">Total Fare:</td><td class="text-end">{{ number_format($all->sum('fare_amount'), 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Total Tax:</td><td class="text-end">{{ number_format($all->sum('tax_amount'), 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Total APT:</td><td class="text-end">{{ number_format($all->sum('apt_charges'), 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Total PSF:</td><td class="text-end">{{ number_format($all->sum('psf_amount'), 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Total Discount:</td><td class="text-end">{{ number_format($all->sum('discount_amount'), 2) }}</td></tr>
+                    <tr class="fw-bold"><td class="text-end pe-3">Gross Sale (Customer):</td><td class="text-end">{{ number_format($gross, 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Total Commission:</td><td class="text-end">{{ number_format($all->sum('commission_amount'), 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Total WHT:</td><td class="text-end">{{ number_format($all->sum('wht_amount'), 2) }}</td></tr>
+                    <tr><td class="text-end pe-3">Gross Supplier Net:</td><td class="text-end">{{ number_format($supplierGross, 2) }}</td></tr>
                 </table>
-                @php($summaryLines = $invoice->lines->where('status', 'active'))
                 <table class="table table-sm w-auto mb-0 ms-4">
-                    <tr><th colspan="2">Summary <small class="text-muted fw-normal">({{ $summaryLines->count() }} active ticket(s))</small></th></tr>
-                    <tr><td class="text-end pe-3">Ticket Total (Customer Net):</td><td>{{ number_format($summaryLines->avg('total_amount') ?? 0, 2) }}</td></tr>
-                    <tr class="fw-bold"><td class="text-end pe-3">Customer Total:</td><td>{!! \App\Support\Money::receivable($summaryLines->sum('total_amount')) !!}</td></tr>
-                    <tr><td class="text-end pe-3">Supplier Net:</td><td>{{ number_format($summaryLines->count() ? $summaryLines->sum(fn ($l) => $l->supplierNet()) / $summaryLines->count() : 0, 2) }}</td></tr>
-                    <tr class="fw-bold"><td class="text-end pe-3">Supplier Total:</td><td>{{ number_format($summaryLines->sum(fn ($l) => $l->supplierNet()), 2) }}</td></tr>
+                    <tr><th colspan="2">After refunds &amp; voids
+                        <small class="text-muted fw-normal">({{ $active->count() }} active · {{ $refunded->count() }} refunded · {{ $voided->count() }} voided)</small></th></tr>
+                    <tr><td class="text-end pe-3">Gross Sale (Customer):</td><td class="text-end">{{ number_format($gross, 2) }}</td></tr>
+                    @if($refunded->isNotEmpty())
+                    <tr><td class="text-end pe-3">Less: Refunded to Customer:</td><td class="text-end">{!! \App\Support\Money::payable($refundBack) !!}</td></tr>
+                    @endif
+                    @if($voided->isNotEmpty())
+                    <tr><td class="text-end pe-3">Less: Voided, returned to Customer:</td><td class="text-end">{!! \App\Support\Money::payable($voidBack) !!}</td></tr>
+                    @endif
+                    @if($refunded->isNotEmpty() || $voided->isNotEmpty())
+                    <tr><td class="text-end pe-3 text-muted">of which refund / void charges kept:</td><td class="text-end text-muted">{{ number_format($chargesKept, 2) }}</td></tr>
+                    @endif
+                    <tr class="fw-bold border-top"><td class="text-end pe-3">Net Receivable (Customer):</td><td class="text-end">{!! \App\Support\Money::receivable($invoice->total_amount) !!}</td></tr>
+                    <tr><td class="text-end pe-3">Payable to Supplier (net of commission):</td><td class="text-end">{!! \App\Support\Money::payable($invoice->total_payable) !!}</td></tr>
+                    <tr class="fw-bold"><td class="text-end pe-3">Income:</td><td class="text-end">{{ number_format($invoice->total_income, 2) }}</td></tr>
                 </table>
             </div>
         </section>
