@@ -55,7 +55,7 @@
                             <td>{{ number_format($line->agent_commission_percent, 2) }}%</td>
                             <td>{{ number_format($line->agent_commission_amount, 2) }}</td>
                             <td>{{ ucfirst($line->status) }}</td>
-                            <td>{{ number_format($line->effectiveReceivable(), 2) }}</td>
+                            <td>{!! \App\Support\Money::receivable($line->effectiveReceivable()) !!}</td>
                         </tr>
                         @if($line->status === 'refunded')
                         <tr class="table-light"><td colspan="24" class="text-muted">
@@ -92,7 +92,7 @@
                             <td>{{ number_format($invoice->total_discount, 2) }}</td>
                             <td colspan="3"></td>
                             <td></td>
-                            <td>{{ number_format($invoice->total_amount, 2) }}</td>
+                            <td>{!! \App\Support\Money::receivable($invoice->total_amount) !!}</td>
                         </tr>
                     </tfoot>
                 </table>

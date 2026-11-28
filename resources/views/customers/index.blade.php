@@ -54,7 +54,7 @@
                                 <td>{{ ucfirst($customer->customer_type) }}</td>
                                 <td>{{ $customer->phone }}</td>
                                 <td>{{ number_format($customer->credit_limit, 2) }}</td>
-                                <td>{{ number_format($customer->account->receivables ?? 0, 2) }}</td>
+                                <td>{!! \App\Support\Money::receivable($customer->account->receivables ?? 0) !!}</td>
                                 <td>
                                     <span class="badge {{ $customer->is_active ? 'bg-success' : 'bg-secondary' }}">
                                         {{ $customer->is_active ? 'Active' : 'Inactive' }}

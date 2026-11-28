@@ -67,7 +67,7 @@
                                 <td>{{ ucwords(str_replace('_', ' ', $supplier->type)) }}</td>
                                 <td>{{ $supplier->contact_person }} {{ $supplier->phone ? '('.$supplier->phone.')' : '' }}</td>
                                 <td>{{ number_format($supplier->credit_limit, 2) }}</td>
-                                <td>{{ number_format($supplier->account->payables ?? 0, 2) }}</td>
+                                <td>{!! \App\Support\Money::payable($supplier->account->payables ?? 0) !!}</td>
                                 <td>
                                     <span class="badge {{ $supplier->is_active ? 'bg-success' : 'bg-secondary' }}">
                                         {{ $supplier->is_active ? 'Active' : 'Inactive' }}

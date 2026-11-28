@@ -551,15 +551,16 @@ class TourInvoiceE2ETest extends TestCase
 
         $this->get(route('reports.accounts', ['tab' => 'vendor_statement', 'supplier_id' => $this->supplier->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']))
             ->assertOk()->assertSee('Vendor Account Statement')->assertSee('Refund / Void Credits')->assertSee('Net Payable')
-            ->assertSee('4,400.00')->assertSee('Kiswa Tower')->assertSee('Kamran');
+            ->assertSee('Kiswa Tower')->assertSee('Kamran')
+            ->assertSee('color:#c0392b;font-weight:bold;">-4,400.00', false); // we owe the supplier → red, negative
         $pdf = $this->get(route('reports.vendor_statement_pdf', ['supplier_id' => $this->supplier->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']));
         $pdf->assertOk()->assertHeader('Content-Type', 'application/pdf');
         $this->assertStringStartsWith('%PDF', $pdf->getContent());
 
-        // Paying more than owed shows a red negative balance.
+        // Paying more than owed → the supplier owes us → green, positive.
         $this->pay($tour, 'payment', 10000);
         $this->get(route('reports.accounts', ['tab' => 'vendor_statement', 'supplier_id' => $this->supplier->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']))
-            ->assertSee('color:#c0392b; font-weight:bold;">-5,600.00', false);
+            ->assertSee('color:#1e8449;font-weight:bold;">5,600.00', false);
     }
 
     public function test_report_04_customer_statement_hides_psf_and_shows_negative_balance_in_red(): void
@@ -571,16 +572,39 @@ class TourInvoiceE2ETest extends TestCase
         $this->assertArrayNotHasKey('sp', $row);
         $this->assertEquals(1015, $row['fare'], 'PSF 15 is folded into the fare; fare + taxes − KB still = net.');
         $this->assertEquals($row['net'], $row['fare'] + $row['taxes'] - $row['kb']);
-        $this->get($url)->assertOk()->assertDontSee('<th class="text-end">SP</th>', false)->assertSee('2,250.00');
+        $this->get($url)->assertOk()->assertDontSee('<th class="text-end">SP</th>', false)
+            ->assertSee('color:#1e8449;font-weight:bold;">2,250.00', false); // customer owes us → green
 
         // Customer pays more than owed → balance below zero, printed with a minus in red.
         $this->post(route('invoice_payments.store'), [
             'direction' => 'receipt', 'customer_id' => $this->customer->id, 'invoice_ref' => 'ticket:' . $tickets->id,
             'cash_bank_account_id' => $this->cashAccountId, 'payment_date' => '2026-11-21', 'amount' => 3000, 'payment_mode' => 'cash',
         ])->assertSessionHasNoErrors();
-        $this->get($url)->assertSee('color:#c0392b; font-weight:bold;">-750.00', false);
+        $this->get($url)->assertSee('color:#c0392b;font-weight:bold;">-750.00', false); // we owe the customer → red, negative
         $pdf = $this->get(route('reports.customer_statement_pdf', ['customer_id' => $this->customer->id, 'from_date' => '2026-11-01', 'to_date' => '2026-11-30']));
         $pdf->assertOk();
+    }
+
+    public function test_report_05_colour_rule_receive_green_pay_red_everywhere(): void
+    {
+        $tour = $this->createFull();
+        $this->patch(route('tour_invoices.status', $tour->id), ['status' => 'confirmed']);
+        $tickets = $this->postedTicketInvoice();
+        $G = 'color:#1e8449;font-weight:bold;">'; $R = 'color:#c0392b;font-weight:bold;">';
+        $range = ['from_date' => '2026-11-01', 'to_date' => '2026-11-30'];
+
+        $this->get(route('tour_invoices.show', $tour->id))->assertSee($G . '10,440.00', false)->assertSee($R . '-8,300.00', false);
+        $this->get(route('tour_invoices.print', ['id' => $tour->id, 'copy' => 'internal']))->assertSee($G . '10,440.00', false)->assertSee($R . '-8,300.00', false);
+        $this->get(route('tour_invoices.print', $tour->id))->assertSee($G . '10,440.00', false)->assertDontSee('8,300.00');
+        $this->get(route('ticket_invoices.show', $tickets->id))->assertSee($G . '2,250.00', false)->assertSee($R . '-2,050.00', false);
+        $this->get(route('reports.travel_accounts', $range))->assertSee($G . '10,440.00', false);
+        $this->get(route('reports.travel_accounts', $range + ['tab' => 'payables']))->assertSee($R . '-10,350.00', false);
+        $this->get(route('reports.travel_sales', $range))->assertSee($G . '10,440.00', false)->assertSee($R . '-8,300.00', false);
+        $this->get(route('reports.travel_vendor', $range))->assertSee($R . '-10,350.00', false);
+        $this->get(route('reports.accounts', ['tab' => 'receivables'] + $range))->assertSee($G . '12,690.00', false);
+        $this->get(route('reports.accounts', ['tab' => 'payables'] + $range))->assertSee($R . '-10,350.00', false);
+        $this->get(route('reports.accounts', ['tab' => 'party_ledger', 'account_id' => $this->supplier->chart_of_account_id] + $range))->assertSee($R . '-10,350.00', false);
+        $this->get(route('dashboard'))->assertSee($G . '12,690', false)->assertSee($R . '-10,350', false);
     }
 
     public function test_report_02_travel_vendor_sales_and_accounting_pages(): void

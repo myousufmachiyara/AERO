@@ -37,15 +37,15 @@
                             <td><a href="{{ route(($row->invoice->invoice_type === 'sale' ? 'ticket_invoices' : 'tour_invoices') . '.show', $row->invoice->id) }}" class="ref-link" target="_blank">{{ $row->invoice->invoice_no }}</a></td>
                             <td>{{ $row->invoice->invoice_date->format('d/m/Y') }}</td>
                             <td>{{ $row->invoice->customer->name ?? '—' }}</td>
-                            <td class="text-end">{{ number_format($row->invoice->total_receivable, 2) }}</td>
-                            <td class="text-end fw-bold">{{ number_format($row->outstanding, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($row->invoice->total_receivable) !!}</td>
+                            <td class="text-end fw-bold">{!! \App\Support\Money::receivable($row->outstanding) !!}</td>
                         </tr>
                         @empty
                         <tr><td colspan="5" class="text-center text-muted">Nothing outstanding in this period.</td></tr>
                         @endforelse
                     </tbody>
                     @if($receivables->isNotEmpty())
-                    <tfoot><tr><td colspan="4" class="text-end">Total Outstanding</td><td class="text-end">{{ number_format($receivables->sum('outstanding'), 2) }}</td></tr></tfoot>
+                    <tfoot><tr><td colspan="4" class="text-end">Total Outstanding</td><td class="text-end">{!! \App\Support\Money::receivable($receivables->sum('outstanding')) !!}</td></tr></tfoot>
                     @endif
                 </table>
             </div>
@@ -73,16 +73,16 @@
                         @forelse($payables as $row)
                         <tr>
                             <td><a href="{{ route('suppliers.show', $row->supplier->id) }}" class="ref-link">{{ $row->supplier->name }}</a></td>
-                            <td class="text-end">{{ number_format($row->total_payable, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::payable($row->total_payable) !!}</td>
                             <td class="text-end">{{ number_format($row->total_paid, 2) }}</td>
-                            <td class="text-end fw-bold">{{ number_format($row->outstanding, 2) }}</td>
+                            <td class="text-end fw-bold">{!! \App\Support\Money::payable($row->outstanding) !!}</td>
                         </tr>
                         @empty
                         <tr><td colspan="4" class="text-center text-muted">Nothing outstanding in this period.</td></tr>
                         @endforelse
                     </tbody>
                     @if($payables->isNotEmpty())
-                    <tfoot><tr><td colspan="3" class="text-end">Total Outstanding</td><td class="text-end">{{ number_format($payables->sum('outstanding'), 2) }}</td></tr></tfoot>
+                    <tfoot><tr><td colspan="3" class="text-end">Total Outstanding</td><td class="text-end">{!! \App\Support\Money::payable($payables->sum('outstanding')) !!}</td></tr></tfoot>
                     @endif
                 </table>
             </div>

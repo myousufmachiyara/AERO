@@ -245,7 +245,7 @@
             <div class="col-md-6">
                 <table class="table table-sm mb-2">
                     <tr><td>Ticket Total (Customer Net) <small class="text-muted">per ticket</small></td><th class="text-end" id="per-ticket-total">0.00</th></tr>
-                    <tr class="table-light"><td><strong>Customer Total</strong> <small class="text-muted">Ticket Total &times; tickets</small></td><th class="text-end fs-6" id="grand-total">0.00</th></tr>
+                    <tr class="table-light"><td><strong>Customer Total</strong> <small class="text-muted">Ticket Total &times; tickets</small></td><th class="text-end fs-6" id="grand-total" style="color:#1e8449;">0.00</th></tr>
                 </table>
             </div>
             <div class="col-md-6">

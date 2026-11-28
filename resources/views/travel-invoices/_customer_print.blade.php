@@ -105,15 +105,15 @@
                     <td class="num">{{ number_format((float) $line->receivable_l_amount, 2) }}</td>
                 </tr>
             @endforeach
-                <tr class="sub"><td colspan="2" style="text-align:right">{{ $label }} total</td><td class="num">{{ number_format((float) $lines->sum('receivable_l_amount'), 2) }}</td></tr>
+                <tr class="sub"><td colspan="2" style="text-align:right">{{ $label }} total</td><td class="num">{!! \App\Support\Money::receivable((float) $lines->sum('receivable_l_amount')) !!}</td></tr>
             </tbody>
         </table>
     @endforeach
 
     <table class="totals">
-        <tr class="grand"><td>Invoice Total</td><td class="num">{{ number_format((float) $invoice->total_receivable, 2) }}</td></tr>
+        <tr class="grand"><td>Invoice Total</td><td class="num">{!! \App\Support\Money::receivable((float) $invoice->total_receivable) !!}</td></tr>
         <tr><td>Received</td><td class="num">{{ number_format($received, 2) }}</td></tr>
-        <tr><td><strong>Balance Due</strong></td><td class="num"><strong>{{ number_format($balance, 2) }}</strong></td></tr>
+        <tr><td><strong>Balance Due</strong></td><td class="num"><strong>{!! \App\Support\Money::receivable($balance) !!}</strong></td></tr>
     </table>
     <div class="words">{{ \App\Support\AmountInWords::rupees((float) $invoice->total_receivable) }}</div>
 

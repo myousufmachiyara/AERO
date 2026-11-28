@@ -6,10 +6,10 @@
 --}}
 @php
     $n = fn ($v) => number_format((float) $v, 2);
-    // Balances below zero print with a minus sign in red (client fix, Nov 2026).
-    $bal = fn ($v) => (float) $v < -0.004
-        ? '<span style="color:#c0392b; font-weight:bold;">-' . number_format(abs((float) $v), 2) . '</span>'
-        : number_format((float) $v, 2);
+    // Green = we receive, red with minus = we pay (client rule, Nov 2026).
+    $bal = fn ($v) => \App\Support\Money::receivable($v);
+    $rec = fn ($v) => \App\Support\Money::receivable($v);
+    $pay = fn ($v) => \App\Support\Money::payable($v);
     $d = fn ($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d/m/Y') : '';
     $csFrom = request('from_date', $from);
     $csTo = request('to_date', $to);
@@ -112,7 +112,7 @@
                     <td class="text-end">{{ $n($sec['ticket']->sum('fare')) }}</td>
                     <td class="text-end">{{ $n($sec['ticket']->sum('taxes')) }}</td>
                     <td class="text-end">{{ $n($sec['ticket']->sum('kb')) }}</td>
-                    <td class="text-end">{{ $n($sec['ticket']->sum('net')) }}</td>
+                    <td class="text-end">{!! $rec($sec['ticket']->sum('net')) !!}</td>
                 </tr></tfoot>
             </table>
             </div>
@@ -144,7 +144,7 @@
                     </tr>
                 @endforeach
                 </tbody>
-                <tfoot><tr><td colspan="9" class="text-end">Total</td><td class="text-end">{{ $n($sec['hotel']->sum('net')) }}</td></tr></tfoot>
+                <tfoot><tr><td colspan="9" class="text-end">Total</td><td class="text-end">{!! $rec($sec['hotel']->sum('net')) !!}</td></tr></tfoot>
             </table>
             </div>
             <div class="cs-counts"><span>Total <strong>{{ $sec['hotel']->count() }}</strong></span></div>
@@ -168,7 +168,7 @@
                     </tr>
                 @endforeach
                 </tbody>
-                <tfoot><tr><td colspan="7" class="text-end">Total</td><td class="text-end">{{ $n($sec['transport']->sum('net')) }}</td></tr></tfoot>
+                <tfoot><tr><td colspan="7" class="text-end">Total</td><td class="text-end">{!! $rec($sec['transport']->sum('net')) !!}</td></tr></tfoot>
             </table>
             </div>
             <div class="cs-counts"><span>Total <strong>{{ $sec['transport']->count() }}</strong></span></div>
@@ -198,7 +198,7 @@
                 <tfoot><tr>
                     <td colspan="3" class="text-end">Total</td>
                     <td class="text-center">{{ $sec['visa']->sum('adults') }}</td><td class="text-center">{{ $sec['visa']->sum('children') }}</td><td class="text-center">{{ $sec['visa']->sum('infants') }}</td>
-                    <td colspan="4"></td><td class="text-end">{{ $n($sec['visa']->sum('net')) }}</td>
+                    <td colspan="4"></td><td class="text-end">{!! $rec($sec['visa']->sum('net')) !!}</td>
                 </tr></tfoot>
             </table>
             </div>
@@ -222,7 +222,7 @@
                     </tr>
                 @endforeach
                 </tbody>
-                <tfoot><tr><td colspan="7" class="text-end">Total</td><td class="text-end">{{ $n($sec['other']->sum('net')) }}</td></tr></tfoot>
+                <tfoot><tr><td colspan="7" class="text-end">Total</td><td class="text-end">{!! $rec($sec['other']->sum('net')) !!}</td></tr></tfoot>
             </table>
             </div>
         @endif
@@ -253,7 +253,7 @@
                     <td colspan="5" class="text-end">Total</td>
                     <td class="text-end">{{ $n($s['refunds']->sum('fare')) }}</td><td class="text-end">{{ $n($s['refunds']->sum('taxes')) }}</td>
                     <td class="text-end">{{ $n($s['refunds']->sum('kb')) }}</td>
-                    <td class="text-end">{{ $n($s['refunds']->sum('cc')) }}</td><td class="text-end">{{ $n($s['refunds']->sum('net')) }}</td>
+                    <td class="text-end">{{ $n($s['refunds']->sum('cc')) }}</td><td class="text-end">{!! $pay($s['refunds']->sum('net')) !!}</td>
                 </tr></tfoot>
             </table>
             </div>

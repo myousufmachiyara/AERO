@@ -218,7 +218,7 @@
                                         {{ ucfirst($line->status) }}
                                     </span>
                                 </td>
-                                <td class="text-end">{{ number_format($line->effectiveReceivable(), 2) }}</td>
+                                <td class="text-end">{!! \App\Support\Money::receivable($line->effectiveReceivable()) !!}</td>
                                 <td class="text-end">
                                     @if($line->isActive())
                                     @can('ticket_invoices.edit')
@@ -477,15 +477,15 @@
                     <tr><td class="text-end pe-3">Total WHT:</td><td>{{ number_format($invoice->total_wht, 2) }}</td></tr>
                     <tr><td class="text-end pe-3">Total PSF:</td><td>{{ number_format($invoice->total_psf, 2) }}</td></tr>
                     <tr><td class="text-end pe-3">Total Discount:</td><td>{{ number_format($invoice->total_discount, 2) }}</td></tr>
-                    <tr class="fw-bold"><td class="text-end pe-3">Grand Total (Customer):</td><td>{{ number_format($invoice->total_amount, 2) }}</td></tr>
-                    <tr><td class="text-end pe-3">Payable to Supplier (net of commission):</td><td>{{ number_format($invoice->total_payable, 2) }}</td></tr>
+                    <tr class="fw-bold"><td class="text-end pe-3">Grand Total (Customer):</td><td>{!! \App\Support\Money::receivable($invoice->total_amount) !!}</td></tr>
+                    <tr><td class="text-end pe-3">Payable to Supplier (net of commission):</td><td>{!! \App\Support\Money::payable($invoice->total_payable) !!}</td></tr>
                     <tr class="fw-bold"><td class="text-end pe-3">Income:</td><td>{{ number_format($invoice->total_income, 2) }}</td></tr>
                 </table>
                 @php($summaryLines = $invoice->lines->where('status', 'active'))
                 <table class="table table-sm w-auto mb-0 ms-4">
                     <tr><th colspan="2">Summary <small class="text-muted fw-normal">({{ $summaryLines->count() }} active ticket(s))</small></th></tr>
                     <tr><td class="text-end pe-3">Ticket Total (Customer Net):</td><td>{{ number_format($summaryLines->avg('total_amount') ?? 0, 2) }}</td></tr>
-                    <tr class="fw-bold"><td class="text-end pe-3">Customer Total:</td><td>{{ number_format($summaryLines->sum('total_amount'), 2) }}</td></tr>
+                    <tr class="fw-bold"><td class="text-end pe-3">Customer Total:</td><td>{!! \App\Support\Money::receivable($summaryLines->sum('total_amount')) !!}</td></tr>
                     <tr><td class="text-end pe-3">Supplier Net:</td><td>{{ number_format($summaryLines->count() ? $summaryLines->sum(fn ($l) => $l->supplierNet()) / $summaryLines->count() : 0, 2) }}</td></tr>
                     <tr class="fw-bold"><td class="text-end pe-3">Supplier Total:</td><td>{{ number_format($summaryLines->sum(fn ($l) => $l->supplierNet()), 2) }}</td></tr>
                 </table>

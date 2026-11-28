@@ -90,20 +90,24 @@ class TravelReportData
     public static function supplierBalances(string $from, string $to): Collection
     {
         $lines = self::supplierLines($from, $to)->groupBy('supplier_id');
+        // Ticket Sale Invoice tickets are owed to their supplier too (net of commission).
+        $tickets = self::ticketSaleLines($from, $to)->filter(fn ($l) => $l->supplier_id)->groupBy('supplier_id');
         $paid = InvoicePayment::where('direction', 'payment')
             ->whereBetween('payment_date', [$from, $to])
             ->selectRaw('supplier_id, SUM(amount) as total')
             ->groupBy('supplier_id')
             ->pluck('total', 'supplier_id');
 
-        return Supplier::orderBy('name')->get()->map(function (Supplier $s) use ($lines, $paid) {
+        return Supplier::orderBy('name')->get()->map(function (Supplier $s) use ($lines, $tickets, $paid) {
             $own = $lines->get($s->id, collect());
-            $payable = round((float) $own->sum('payable_l_amount'), 2);
+            $ownTickets = $tickets->get($s->id, collect());
+            $payable = round((float) $own->sum('payable_l_amount')
+                + $ownTickets->sum(fn ($l) => $l->effectiveSupplierPayable() - $l->effectiveNetCommission()), 2);
             $totalPaid = round((float) ($paid[$s->id] ?? 0), 2);
 
             return (object) [
                 'supplier' => $s,
-                'lines_count' => $own->count(),
+                'lines_count' => $own->count() + $ownTickets->count(),
                 'total_payable' => $payable,
                 'total_paid' => $totalPaid,
                 'outstanding' => round($payable - $totalPaid, 2),

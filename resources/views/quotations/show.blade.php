@@ -112,8 +112,8 @@
                     <tfoot>
                         <tr class="fw-bold">
                             <td colspan="3" class="text-end">Totals</td>
-                            <td>{{ number_format($quotation->total_receivable, 2) }}</td>
-                            <td>{{ number_format($quotation->total_payable, 2) }}</td>
+                            <td>{!! \App\Support\Money::receivable($quotation->total_receivable) !!}</td>
+                            <td>{!! \App\Support\Money::payable($quotation->total_payable) !!}</td>
                             <td>{{ number_format($quotation->total_income, 2) }}</td>
                         </tr>
                     </tfoot>

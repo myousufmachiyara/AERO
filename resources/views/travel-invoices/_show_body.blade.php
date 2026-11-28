@@ -100,8 +100,8 @@
                                 <td>{{ $line->description ?: '—' }}</td>
                                 <td>{{ ucfirst($line->ticketDetail->pax_type ?? 'adult') }}</td>
                                 <td>{{ $line->ticketDetail->ticket_no ?? '—' }}</td>
-                                <td class="text-end">{{ number_format($line->receivable_l_amount, 2) }}</td>
-                                <td class="text-end">{{ number_format($line->payable_l_amount, 2) }}</td>
+                                <td class="text-end">{!! \App\Support\Money::receivable($line->receivable_l_amount) !!}</td>
+                                <td class="text-end">{!! \App\Support\Money::payable($line->payable_l_amount) !!}</td>
                                 <td class="text-end {{ $line->income_l_amount < 0 ? 'text-danger' : 'text-success' }}">{{ number_format($line->income_l_amount, 2) }}</td>
                             </tr>
                             @endforeach
@@ -109,8 +109,8 @@
                         <tfoot>
                             <tr class="fw-bold">
                                 <td colspan="4" class="text-end">Tickets Total ({{ $tkLines->count() }})</td>
-                                <td class="text-end">{{ number_format($tkLines->sum('receivable_l_amount'), 2) }}</td>
-                                <td class="text-end">{{ number_format($tkLines->sum('payable_l_amount'), 2) }}</td>
+                                <td class="text-end">{!! \App\Support\Money::receivable($tkLines->sum('receivable_l_amount')) !!}</td>
+                                <td class="text-end">{!! \App\Support\Money::payable($tkLines->sum('payable_l_amount')) !!}</td>
                                 <td class="text-end">{{ number_format($tkLines->sum('income_l_amount'), 2) }}</td>
                             </tr>
                         </tfoot>
@@ -188,8 +188,8 @@
                                     <td>{{ $line->description ?: '—' }}</td>
                                 @endif
                                 <td>{{ $line->currency }}</td>
-                                <td>{{ number_format($line->receivable_l_amount, 2) }}</td>
-                                <td>{{ number_format($line->payable_l_amount, 2) }}</td>
+                                <td>{!! \App\Support\Money::receivable($line->receivable_l_amount) !!}</td>
+                                <td>{!! \App\Support\Money::payable($line->payable_l_amount) !!}</td>
                                 <td>
                                     @forelse($line->charges as $charge)
                                         <div class="small">{{ $charge->chargeType->name ?? '—' }}: {{ number_format($charge->computed_amount, 2) }}</div>
@@ -211,11 +211,11 @@
                     </div>
                     <div class="col-md-6 text-end">
                         <table class="table table-borderless mb-0" style="max-width:320px;margin-left:auto;">
-                            <tr><th>Total Receivable</th><td class="text-end">{{ number_format($invoice->total_receivable, 2) }}</td></tr>
-                            <tr><th>Total Payable</th><td class="text-end">{{ number_format($invoice->total_payable, 2) }}</td></tr>
+                            <tr><th>Total Receivable</th><td class="text-end">{!! \App\Support\Money::receivable($invoice->total_receivable) !!}</td></tr>
+                            <tr><th>Total Payable</th><td class="text-end">{!! \App\Support\Money::payable($invoice->total_payable) !!}</td></tr>
                             <tr><th>Total Income</th><td class="text-end"><strong>{{ number_format($invoice->total_income, 2) }}</strong></td></tr>
                             <tr><th>Received</th><td class="text-end text-success">{{ number_format($invoice->receivedAmount(), 2) }}</td></tr>
-                            <tr><th>Outstanding</th><td class="text-end"><strong class="{{ $invoice->outstandingAmount() > 0 ? 'text-danger' : 'text-success' }}">{{ number_format($invoice->outstandingAmount(), 2) }}</strong></td></tr>
+                            <tr><th>Outstanding</th><td class="text-end">{!! \App\Support\Money::receivable($invoice->outstandingAmount()) !!}</td></tr>
                         </table>
                     </div>
                 </div>

@@ -22,7 +22,7 @@
                     <tr><th>Credit Limit</th><td>{{ number_format($supplier->credit_limit, 2) }}</td></tr>
                     <tr><th>Credit Days</th><td>{{ $supplier->credit_days }}</td></tr>
                     <tr><th>Ledger Account</th><td>{{ $supplier->account->account_code ?? '—' }}</td></tr>
-                    <tr><th>Current Payables</th><td>{{ number_format($supplier->account->payables ?? 0, 2) }}</td></tr>
+                    <tr><th>Current Payables</th><td>{!! \App\Support\Money::payable($supplier->account->payables ?? 0) !!}</td></tr>
                 </table>
                 <button class="btn btn-primary no-print" onclick="window.print()"><i class="fa fa-print"></i> Print</button>
             </div>

@@ -40,7 +40,7 @@
                 @if($supplier->account)
                 <div class="row">
                     <div class="col-md-4 mb-2"><strong>Account Code:</strong> {{ $supplier->account->account_code }}</div>
-                    <div class="col-md-4 mb-2"><strong>Payables:</strong> {{ number_format($supplier->account->payables, 2) }}</div>
+                    <div class="col-md-4 mb-2"><strong>Payables:</strong> {!! \App\Support\Money::payable($supplier->account->payables) !!}</div>
                     <div class="col-md-4 mb-2">
                         @can('coa.index')
                         <a href="{{ route('coa.index') }}">View in Chart of Accounts</a>

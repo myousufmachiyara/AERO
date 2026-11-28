@@ -5,10 +5,10 @@
 --}}
 @php
     $n = fn ($v) => number_format((float) $v, 2);
-    // Balances below zero print with a minus sign in red (client fix, Nov 2026).
-    $bal = fn ($v) => (float) $v < -0.004
-        ? '<span style="color:#c0392b; font-weight:bold;">-' . number_format(abs((float) $v), 2) . '</span>'
-        : number_format((float) $v, 2);
+    // Green = we receive, red with minus = we pay (client rule, Nov 2026).
+    $bal = fn ($v) => \App\Support\Money::receivable($v);
+    $rec = fn ($v) => \App\Support\Money::receivable($v);
+    $pay = fn ($v) => \App\Support\Money::payable($v);
     $d = fn ($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d/m/Y') : '';
     $e = fn ($v) => e((string) ($v ?? ''));
     $sec = $s['sections'];
@@ -62,7 +62,7 @@
         <td width="8%" class="r">{{ $n($sec['ticket']->sum('fare')) }}</td>
         <td width="8%" class="r">{{ $n($sec['ticket']->sum('taxes')) }}</td>
         <td width="5%" class="r">{{ $n($sec['ticket']->sum('kb')) }}</td>
-        <td width="9%" class="r"><b>{{ $n($sec['ticket']->sum('net')) }}</b></td>
+        <td width="9%" class="r"><b>{!! $rec($sec['ticket']->sum('net')) !!}</b></td>
     </tr>
 </table>
 <table cellpadding="1.5"><tr>
@@ -100,7 +100,7 @@
         <td width="10%" class="r" style="{{ $td }}">{{ $n($r['net']) }}</td>
     </tr>
     @endforeach
-    <tr nobr="true"><td width="90%" class="r">Total</td><td width="10%" class="r"><b>{{ $n($sec['hotel']->sum('net')) }}</b></td></tr>
+    <tr nobr="true"><td width="90%" class="r">Total</td><td width="10%" class="r"><b>{!! $rec($sec['hotel']->sum('net')) !!}</b></td></tr>
 </table>
 <table cellpadding="1.5"><tr><td width="80%"></td><td width="10%">Total</td><td width="10%">{{ $sec['hotel']->count() }}</td></tr></table>
 @endif
@@ -128,7 +128,7 @@
         <td width="9%" class="r" style="{{ $td }}">{{ $n($r['net']) }}</td>
     </tr>
     @endforeach
-    <tr nobr="true"><td width="91%" class="r">Total</td><td width="9%" class="r"><b>{{ $n($sec['transport']->sum('net')) }}</b></td></tr>
+    <tr nobr="true"><td width="91%" class="r">Total</td><td width="9%" class="r"><b>{!! $rec($sec['transport']->sum('net')) !!}</b></td></tr>
 </table>
 <table cellpadding="1.5"><tr><td width="80%"></td><td width="10%">Total</td><td width="10%">{{ $sec['transport']->count() }}</td></tr></table>
 @endif
@@ -166,7 +166,7 @@
         <td width="4%" class="c">{{ $sec['visa']->sum('adults') }}</td>
         <td width="4%" class="c">{{ $sec['visa']->sum('children') }}</td>
         <td width="4%" class="c">{{ $sec['visa']->sum('infants') }}</td>
-        <td width="48%" class="r"><b>{{ $n($sec['visa']->sum('net')) }}</b></td>
+        <td width="48%" class="r"><b>{!! $rec($sec['visa']->sum('net')) !!}</b></td>
     </tr>
 </table>
 @endif
@@ -194,7 +194,7 @@
         <td width="10%" class="r" style="{{ $td }}">{{ $n($r['net']) }}</td>
     </tr>
     @endforeach
-    <tr nobr="true"><td width="90%" class="r">Total</td><td width="10%" class="r"><b>{{ $n($sec['other']->sum('net')) }}</b></td></tr>
+    <tr nobr="true"><td width="90%" class="r">Total</td><td width="10%" class="r"><b>{!! $rec($sec['other']->sum('net')) !!}</b></td></tr>
 </table>
 @endif
 
@@ -233,7 +233,7 @@
         <td width="7%" class="r">{{ $n($s['refunds']->sum('taxes')) }}</td>
         <td width="5%" class="r">{{ $n($s['refunds']->sum('kb')) }}</td>
         <td width="7%" class="r">{{ $n($s['refunds']->sum('cc')) }}</td>
-        <td width="8%" class="r"><b>{{ $n($s['refunds']->sum('net')) }}</b></td>
+        <td width="8%" class="r"><b>{!! $pay($s['refunds']->sum('net')) !!}</b></td>
     </tr>
 </table>
 <table cellpadding="1.5"><tr>

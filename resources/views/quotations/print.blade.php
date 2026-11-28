@@ -39,7 +39,7 @@
                         @endforeach
                     </tbody>
                     <tfoot>
-                        <tr class="fw-bold"><td colspan="2" class="text-end">Total</td><td>{{ number_format($quotation->total_receivable, 2) }}</td></tr>
+                        <tr class="fw-bold"><td colspan="2" class="text-end">Total</td><td>{!! \App\Support\Money::receivable($quotation->total_receivable) !!}</td></tr>
                     </tfoot>
                 </table>
                 @if($quotation->remarks)<p><strong>Remarks:</strong> {{ $quotation->remarks }}</p>@endif

@@ -37,7 +37,7 @@
                 @if($customer->account)
                 <div class="row">
                     <div class="col-md-4 mb-2"><strong>Account Code:</strong> {{ $customer->account->account_code }}</div>
-                    <div class="col-md-4 mb-2"><strong>Receivables:</strong> {{ number_format($customer->account->receivables, 2) }}</div>
+                    <div class="col-md-4 mb-2"><strong>Receivables:</strong> {!! \App\Support\Money::receivable($customer->account->receivables) !!}</div>
                     <div class="col-md-4 mb-2">
                         @can('coa.index')
                         <a href="{{ route('coa.index') }}">View in Chart of Accounts</a>

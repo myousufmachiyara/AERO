@@ -34,9 +34,9 @@
     @if($isReceipt && $payment->invoice())
         @php($inv = $payment->invoice())
         <table class="totals">
-            <tr><td>Invoice Total</td><td class="num">{{ number_format((float) ($inv->total_receivable ?? $inv->total_amount), 2) }}</td></tr>
+            <tr><td>Invoice Total</td><td class="num">{!! \App\Support\Money::receivable((float) ($inv->total_receivable ?? $inv->total_amount)) !!}</td></tr>
             <tr><td>Total Received to date</td><td class="num">{{ number_format($inv->receivedAmount(), 2) }}</td></tr>
-            <tr class="grand"><td>Balance Due</td><td class="num">{{ number_format($inv->outstandingAmount(), 2) }}</td></tr>
+            <tr class="grand"><td>Balance Due</td><td class="num">{!! \App\Support\Money::receivable($inv->outstandingAmount()) !!}</td></tr>
         </table>
     @endif
 

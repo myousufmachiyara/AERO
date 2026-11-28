@@ -27,7 +27,7 @@
                     <div class="col-md-4 mb-2">
                         <strong>Invoice:</strong>
                         <a href="{{ $payment->invoiceUrl() }}">{{ $payment->invoiceNo() }}</a>
-                        (Outstanding after this: {{ number_format($payment->invoice()->outstandingAmount(), 2) }})
+                        (Outstanding after this: {!! \App\Support\Money::receivable($payment->invoice()->outstandingAmount()) !!})
                     </div>
                     @endif
                     <div class="col-md-4 mb-2">

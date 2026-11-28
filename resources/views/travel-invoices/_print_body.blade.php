@@ -37,8 +37,8 @@
                             </td>
                             <td>{{ $line->supplier->name ?? '—' }}</td>
                             <td>{{ $line->currency }}</td>
-                            <td>{{ number_format($line->receivable_l_amount, 2) }}</td>
-                            <td>{{ number_format($line->payable_l_amount, 2) }}</td>
+                            <td>{!! \App\Support\Money::receivable($line->receivable_l_amount) !!}</td>
+                            <td>{!! \App\Support\Money::payable($line->payable_l_amount) !!}</td>
                             <td>{{ number_format($line->income_l_amount, 2) }}</td>
                         </tr>
                         @endforeach
@@ -46,8 +46,8 @@
                     <tfoot>
                         <tr class="fw-bold">
                             <td colspan="3" class="text-end">Totals</td>
-                            <td>{{ number_format($invoice->total_receivable, 2) }}</td>
-                            <td>{{ number_format($invoice->total_payable, 2) }}</td>
+                            <td>{!! \App\Support\Money::receivable($invoice->total_receivable) !!}</td>
+                            <td>{!! \App\Support\Money::payable($invoice->total_payable) !!}</td>
                             <td>{{ number_format($invoice->total_income, 2) }}</td>
                         </tr>
                     </tfoot>

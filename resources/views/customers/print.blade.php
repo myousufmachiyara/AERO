@@ -21,7 +21,7 @@
                     <tr><th>Credit Limit</th><td>{{ number_format($customer->credit_limit, 2) }}</td></tr>
                     <tr><th>Credit Days</th><td>{{ $customer->credit_days }}</td></tr>
                     <tr><th>Ledger Account</th><td>{{ $customer->account->account_code ?? '—' }}</td></tr>
-                    <tr><th>Current Receivables</th><td>{{ number_format($customer->account->receivables ?? 0, 2) }}</td></tr>
+                    <tr><th>Current Receivables</th><td>{!! \App\Support\Money::receivable($customer->account->receivables ?? 0) !!}</td></tr>
                 </table>
                 <button class="btn btn-primary no-print" onclick="window.print()"><i class="fa fa-print"></i> Print</button>
             </div>

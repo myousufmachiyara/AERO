@@ -30,7 +30,7 @@
                 @if($airline->account)
                 <div class="row">
                     <div class="col-md-4 mb-2"><strong>Account Code:</strong> {{ $airline->account->account_code }}</div>
-                    <div class="col-md-4 mb-2"><strong>Receivable (Commission):</strong> {{ number_format($airline->account->receivables, 2) }}</div>
+                    <div class="col-md-4 mb-2"><strong>Receivable (Commission):</strong> {!! \App\Support\Money::receivable($airline->account->receivables) !!}</div>
                     <div class="col-md-4 mb-2">
                         @can('coa.index')
                         <a href="{{ route('coa.index') }}">View in Chart of Accounts</a>

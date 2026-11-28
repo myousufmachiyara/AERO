@@ -36,9 +36,9 @@
                         <tr>
                             <td><a href="{{ route('suppliers.show', $row->supplier->id) }}" class="ref-link">{{ $row->supplier->name }}</a></td>
                             <td>{{ $row->lines_count }}</td>
-                            <td class="text-end">{{ number_format($row->total_payable, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::payable($row->total_payable) !!}</td>
                             <td class="text-end">{{ number_format($row->total_paid, 2) }}</td>
-                            <td class="text-end fw-bold">{{ number_format($row->outstanding, 2) }}</td>
+                            <td class="text-end fw-bold">{!! \App\Support\Money::payable($row->outstanding) !!}</td>
                             <td class="text-center">{{ $row->complaints_count }}</td>
                             <td class="text-center">{{ $row->complaint_rate !== null ? $row->complaint_rate . '%' : '—' }}</td>
                             <td class="text-center no-print">
@@ -120,7 +120,7 @@
                             <td>{{ $row->supplier }}</td>
                             <td>{{ ucfirst($row->service_type) }}</td>
                             <td>{{ $row->lines_count }}</td>
-                            <td class="text-end">{{ number_format($row->total_payable, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::payable($row->total_payable) !!}</td>
                         </tr>
                         @empty
                         <tr><td colspan="4" class="text-center text-muted">No data for this period.</td></tr>

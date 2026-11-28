@@ -200,6 +200,11 @@
 
                         @elseif ($key === 'party_ledger')
                             {{-- row: [date, party, voucher_ref, narration, dr, cr, balance] --}}
+                            @php
+                                // Colour rule: what the party owes us = green, what we owe = red with minus.
+                                $plType = $plType ?? optional(\App\Models\ChartOfAccounts::find(request('account_id')))->account_type;
+                                $plBal = (float) str_replace(',', '', (string) ($row[6] ?? 0));
+                            @endphp
                             <td>{{ $row[0] }}</td>
                             <td>{{ $row[1] }}</td>
                             <td>
@@ -223,7 +228,11 @@
                             <td class="narration">{{ $row[3] ?? '' }}</td>
                             <td class="text-end">{{ $row[4] ?? '' }}</td>
                             <td class="text-end">{{ $row[5] ?? '' }}</td>
-                            <td class="text-end fw-bold">{{ $row[6] ?? '' }}</td>
+                            <td class="text-end fw-bold">
+                                @if (in_array($plType, ['customer', 'receivable'], true)) {!! \App\Support\Money::receivable($plBal) !!}
+                                @elseif (in_array($plType, ['vendor', 'payable', 'airline'], true)) {!! \App\Support\Money::payable($plBal) !!}
+                                @else {{ $row[6] ?? '' }} @endif
+                            </td>
 
                         @elseif ($key === 'cash_book' || $key === 'bank_book')
                             {{-- row: [date, dr_account, cr_account, narration, dr, cr, balance] --}}
@@ -268,6 +277,10 @@
                                 @endif
                             </td>
 
+                        @elseif (in_array($key, ['receivables', 'payables']))
+                            <td>{{ $row[0] }}</td>
+                            <td class="text-end">{!! \App\Support\Money::side($key === 'receivables' ? 'receivable' : 'payable', (float) str_replace(',', '', $row[1])) !!}</td>
+
                         @else
                             {{-- Default for all other reports --}}
                             @foreach ($row as $col)
@@ -294,7 +307,7 @@
                         <tr>
                             <td class="text-end">Total:</td>
                             <td class="text-end">
-                                {{ number_format(collect($reports[$key])->sum(fn($r) => (float) str_replace(',', '', $r[1])), 2) }}
+                                {!! \App\Support\Money::side($key === 'receivables' ? 'receivable' : 'payable', collect($reports[$key])->sum(fn($r) => (float) str_replace(',', '', $r[1]))) !!}
                             </td>
                         </tr>
                     </tfoot>

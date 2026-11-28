@@ -123,7 +123,7 @@
                         <div class="widget-summary-col">
                             <div class="summary">
                                 <h4 class="title">Receivable from customers</h4>
-                                <div class="info"><strong class="amount">{{ $pkr($kpi['receivable']) }}</strong> <span class="text-secondary">PKR</span></div>
+                                <div class="info"><strong class="amount">{!! \App\Support\Money::receivable($kpi['receivable'], 0) !!}</strong> <span class="text-secondary">PKR</span></div>
                                 <div class="small mt-1 text-muted">{{ $kpi['receivable_count'] }} {{ \Illuminate\Support\Str::plural('customer', $kpi['receivable_count']) }} owe us</div>
                             </div>
                             <div class="summary-footer">
@@ -142,7 +142,7 @@
                         <div class="widget-summary-col">
                             <div class="summary">
                                 <h4 class="title">Payable to suppliers</h4>
-                                <div class="info"><strong class="amount">{{ $pkr($kpi['payable']) }}</strong> <span class="text-quaternary">PKR</span></div>
+                                <div class="info"><strong class="amount">{!! \App\Support\Money::payable($kpi['payable'], 0) !!}</strong> <span class="text-quaternary">PKR</span></div>
                                 <div class="small mt-1 text-muted">Owed to {{ $kpi['payable_count'] }} suppliers / airlines</div>
                             </div>
                             <div class="summary-footer">
@@ -312,7 +312,7 @@
                                         <a href="{{ route('reports.customer_statement_pdf', ['customer_id' => $c['id'], 'from_date' => $today->copy()->startOfYear()->toDateString(), 'to_date' => $today->toDateString()]) }}" target="_blank" title="Statement (PDF)">{{ $c['name'] }}</a>
                                     @else {{ $c['name'] }} @endcan
                                 </span>
-                                <strong>{{ number_format($c['balance'], 2) }}</strong>
+                                <strong>{!! \App\Support\Money::receivable($c['balance']) !!}</strong>
                             </div>
                             <div class="bar-track"><div class="bar-fill" style="width:{{ round($c['balance'] / $maxOwed * 100) }}%"></div></div>
                         </div>

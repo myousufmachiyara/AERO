@@ -55,10 +55,10 @@
                             </td>
                             <td>{{ $inv->invoice_type === 'sale' ? 'Sale (Tickets)' : 'Tour' }}</td>
                             <td>{{ $inv->customer->name ?? '—' }}</td>
-                            <td class="text-end">{{ number_format($inv->total_receivable, 2) }}</td>
-                            <td class="text-end">{{ number_format($inv->total_payable, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($inv->total_receivable) !!}</td>
+                            <td class="text-end">{!! \App\Support\Money::payable($inv->total_payable) !!}</td>
                             <td class="text-end fw-bold">{{ number_format($inv->total_income, 2) }}</td>
-                            <td class="text-end">{{ number_format($inv->outstandingAmount(), 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($inv->outstandingAmount()) !!}</td>
                             <td>{{ ucfirst($inv->status) }}</td>
                         </tr>
                         @empty
@@ -69,10 +69,10 @@
                     <tfoot>
                         <tr>
                             <td colspan="4" class="text-end">Totals</td>
-                            <td class="text-end">{{ number_format($register->sum('total_receivable'), 2) }}</td>
-                            <td class="text-end">{{ number_format($register->sum('total_payable'), 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($register->sum('total_receivable')) !!}</td>
+                            <td class="text-end">{!! \App\Support\Money::payable($register->sum('total_payable')) !!}</td>
                             <td class="text-end">{{ number_format($register->sum('total_income'), 2) }}</td>
-                            <td class="text-end">{{ number_format($register->sum(fn($i) => $i->outstandingAmount()), 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($register->sum(fn($i) => $i->outstandingAmount())) !!}</td>
                             <td></td>
                         </tr>
                     </tfoot>
@@ -104,8 +104,8 @@
                         <tr>
                             <td>{{ ucfirst($row->service_type) }}</td>
                             <td>{{ $row->lines_count }}</td>
-                            <td class="text-end">{{ number_format($row->total_receivable, 2) }}</td>
-                            <td class="text-end">{{ number_format($row->total_payable, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($row->total_receivable) !!}</td>
+                            <td class="text-end">{!! \App\Support\Money::payable($row->total_payable) !!}</td>
                             <td class="text-end fw-bold">{{ number_format($row->total_income, 2) }}</td>
                         </tr>
                         @empty
@@ -139,9 +139,9 @@
                         <tr>
                             <td>{{ $row->customer }}</td>
                             <td>{{ $row->invoices_count }}</td>
-                            <td class="text-end">{{ number_format($row->total_receivable, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($row->total_receivable) !!}</td>
                             <td class="text-end fw-bold">{{ number_format($row->total_income, 2) }}</td>
-                            <td class="text-end">{{ number_format($row->total_outstanding, 2) }}</td>
+                            <td class="text-end">{!! \App\Support\Money::receivable($row->total_outstanding) !!}</td>
                         </tr>
                         @empty
                         <tr><td colspan="5" class="text-center text-muted">No data for this period.</td></tr>

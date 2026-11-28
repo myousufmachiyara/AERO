@@ -6,9 +6,10 @@
 --}}
 @php
     $n = fn ($v) => number_format((float) $v, 2);
-    $bal = fn ($v) => (float) $v < -0.004
-        ? '<span style="color:#c0392b; font-weight:bold;">-' . number_format(abs((float) $v), 2) . '</span>'
-        : number_format((float) $v, 2);
+    // Green = we receive, red with minus = we pay (client rule, Nov 2026).
+    $bal = fn ($v) => \App\Support\Money::payable($v);
+    $rec = fn ($v) => \App\Support\Money::receivable($v);
+    $pay = fn ($v) => \App\Support\Money::payable($v);
     $d = fn ($v) => $v ? \Illuminate\Support\Carbon::parse($v)->format('d/m/Y') : '';
     $vsFrom = request('from_date', $from);
     $vsTo = request('to_date', $to);
@@ -98,7 +99,7 @@
                 <tfoot><tr>
                     <td colspan="6" class="text-end">Total</td>
                     <td class="text-end">{{ $n($s['tickets']->sum('fare')) }}</td><td class="text-end">{{ $n($s['tickets']->sum('taxes')) }}</td>
-                    <td class="text-end">{{ $n($s['tickets']->sum('commission')) }}</td><td class="text-end">{{ $n($s['tickets']->sum('net')) }}</td>
+                    <td class="text-end">{{ $n($s['tickets']->sum('commission')) }}</td><td class="text-end">{!! $pay($s['tickets']->sum('net')) !!}</td>
                 </tr></tfoot>
             </table>
             </div>
@@ -126,7 +127,7 @@
                 </tbody>
                 <tfoot><tr>
                     <td colspan="5" class="text-end">Total</td>
-                    <td class="text-end">{{ $n($rows->sum('payable')) }}</td><td class="text-end">{{ $n($rows->sum('charges')) }}</td><td class="text-end">{{ $n($rows->sum('net')) }}</td>
+                    <td class="text-end">{{ $n($rows->sum('payable')) }}</td><td class="text-end">{{ $n($rows->sum('charges')) }}</td><td class="text-end">{!! $pay($rows->sum('net')) !!}</td>
                 </tr></tfoot>
             </table>
             </div>
@@ -152,7 +153,7 @@
                 </tbody>
                 <tfoot><tr>
                     <td colspan="5" class="text-end">Total</td>
-                    <td class="text-end">{{ $n($s['credits']->sum('original')) }}</td><td class="text-end">{{ $n($s['credits']->sum('kept')) }}</td><td class="text-end">{{ $n($s['credits']->sum('net')) }}</td>
+                    <td class="text-end">{{ $n($s['credits']->sum('original')) }}</td><td class="text-end">{{ $n($s['credits']->sum('kept')) }}</td><td class="text-end">{!! $rec($s['credits']->sum('net')) !!}</td>
                 </tr></tfoot>
             </table>
             </div>

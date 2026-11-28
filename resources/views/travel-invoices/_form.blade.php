@@ -291,7 +291,7 @@
         <div class="card mt-3">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <span class="text-muted">Hotel lines total receivable (local currency)</span>
-                <h5 class="mb-0" id="hotel-tab-total-receivable">0.00</h5>
+                <h5 class="mb-0" id="hotel-tab-total-receivable" style="color:#1e8449;">0.00</h5>
             </div>
         </div>
     </div>
@@ -555,7 +555,7 @@
         <div class="card mt-3">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <span class="text-muted">Transport lines total receivable (local currency)</span>
-                <h5 class="mb-0" id="transport-tab-total-receivable">0.00</h5>
+                <h5 class="mb-0" id="transport-tab-total-receivable" style="color:#1e8449;">0.00</h5>
             </div>
         </div>
     </div>
@@ -741,7 +741,7 @@
         <div class="card mt-3">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <span class="text-muted">Visa lines total receivable (local currency)</span>
-                <h5 class="mb-0" id="visa-tab-total-receivable">0.00</h5>
+                <h5 class="mb-0" id="visa-tab-total-receivable" style="color:#1e8449;">0.00</h5>
             </div>
         </div>
     </div>
@@ -1050,8 +1050,8 @@
             <tfoot>
                 <tr class="fw-bold">
                     <td colspan="4" class="text-end">Totals</td>
-                    <td id="totalReceivable">0.00</td>
-                    <td id="totalPayable">0.00</td>
+                    <td id="totalReceivable" style="color:#1e8449;font-weight:bold;">0.00</td>
+                    <td id="totalPayable" style="color:#c0392b;font-weight:bold;">0.00</td>
                     <td id="totalIncome">0.00</td>
                 </tr>
             </tfoot>
@@ -1737,7 +1737,8 @@
 
         document.getElementById('summaryBody').innerHTML = html || '<tr><td colspan="7" class="text-center text-muted">No lines added yet.</td></tr>';
         document.getElementById('totalReceivable').textContent = totalRecv.toFixed(2);
-        document.getElementById('totalPayable').textContent = totalPay.toFixed(2);
+        // Amount we pay shows negative (client rule, Nov 2026).
+        document.getElementById('totalPayable').textContent = (totalPay > 0 ? '-' : '') + Math.abs(totalPay).toFixed(2);
         document.getElementById('totalIncome').textContent = totalIncome.toFixed(2);
         recalcHotelTabTotal();
         recalcTransportTabTotal();

@@ -5,9 +5,10 @@
 --}}
 @php
     $n = fn ($v) => number_format((float) $v, 2);
-    $bal = fn ($v) => (float) $v < -0.004
-        ? '<span style="color:#c0392b; font-weight:bold;">-' . number_format(abs((float) $v), 2) . '</span>'
-        : number_format((float) $v, 2);
+    // Green = we receive, red with minus = we pay (client rule, Nov 2026).
+    $bal = fn ($v) => \App\Support\Money::payable($v);
+    $rec = fn ($v) => \App\Support\Money::receivable($v);
+    $pay = fn ($v) => \App\Support\Money::payable($v);
     $e = fn ($v) => e((string) ($v ?? ''));
     $hasPurchases = $s['tickets']->isNotEmpty() || collect($s['services'])->contains(fn ($rows) => $rows->isNotEmpty());
     $band = 'background-color:#d4d4d4;text-align:center;font-size:10px;';
@@ -57,7 +58,7 @@
         <td width="8%" class="r">{{ $n($s['tickets']->sum('fare')) }}</td>
         <td width="8%" class="r">{{ $n($s['tickets']->sum('taxes')) }}</td>
         <td width="8%" class="r">{{ $n($s['tickets']->sum('commission')) }}</td>
-        <td width="9%" class="r"><b>{{ $n($s['tickets']->sum('net')) }}</b></td>
+        <td width="9%" class="r"><b>{!! $pay($s['tickets']->sum('net')) !!}</b></td>
     </tr>
 </table>
 @endif
@@ -92,7 +93,7 @@
         <td width="73%" class="r">Total</td>
         <td width="9%" class="r">{{ $n($rows->sum('payable')) }}</td>
         <td width="9%" class="r">{{ $n($rows->sum('charges')) }}</td>
-        <td width="9%" class="r"><b>{{ $n($rows->sum('net')) }}</b></td>
+        <td width="9%" class="r"><b>{!! $pay($rows->sum('net')) !!}</b></td>
     </tr>
 </table>
 @endforeach
@@ -125,7 +126,7 @@
         <td width="70%" class="r">Total</td>
         <td width="10%" class="r">{{ $n($s['credits']->sum('original')) }}</td>
         <td width="10%" class="r">{{ $n($s['credits']->sum('kept')) }}</td>
-        <td width="10%" class="r"><b>{{ $n($s['credits']->sum('net')) }}</b></td>
+        <td width="10%" class="r"><b>{!! $rec($s['credits']->sum('net')) !!}</b></td>
     </tr>
 </table>
 @endif

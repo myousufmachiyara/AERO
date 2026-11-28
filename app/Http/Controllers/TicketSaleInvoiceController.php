@@ -353,7 +353,9 @@ class TicketSaleInvoiceController extends Controller
         $pdf->Cell(120, 5, NumberWords::forAmount((float) $invoice->total_amount), 0, 0);
         $pdf->SetFont('helvetica', 'B', 9);
         $pdf->Cell(40, 5, 'Invoice Net Value', 0, 0, 'R');
+        $pdf->SetTextColor(30, 132, 73); // receivable = green (client colour rule, Nov 2026)
         $pdf->Cell(20, 5, number_format($invoice->total_amount, 2), 0, 1, 'R');
+        $pdf->SetTextColor(0, 0, 0);
 
         $pdf->Ln(6);
         $pdf->SetFont('helvetica', 'I', 7);
