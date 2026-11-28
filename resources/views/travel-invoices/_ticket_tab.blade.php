@@ -226,6 +226,7 @@
             </div>
         </div>
         <small class="text-muted">Type either the % or the amount — the other is calculated. The calculated side is shaded.</small>
+        <div id="tkm-pair-hint" class="small text-danger d-none">Enter the Fare (and Tax) first — a % cannot be worked out from an amount while its base is 0.</div>
     </div>
 </section>
 

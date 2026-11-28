@@ -166,6 +166,8 @@
     function recalcMaster() {
         const v = { fare: num('tkm-fare'), tax: num('tkm-tax') };
 
+        let baseMissing = false;
+
         PAIRS.forEach(({ key, basis }) => {
             const b = basis(v);
             const pctEl = pairEl(key, 'pct'), amtEl = pairEl(key, 'amt');
@@ -173,14 +175,17 @@
             if (pairEl(key, 'mode').value === 'amount') {
                 amt = round2(parseFloat(amtEl.value) || 0);
                 const pct = b > 0 ? round2(amt / b * 100) : 0;
-                if (document.activeElement !== pctEl) pctEl.value = pct;
+                if (document.activeElement !== pctEl) { pctEl.value = pct; pctEl.dataset.shown = pctEl.value; }
+                if (amt > 0 && !(b > 0)) baseMissing = true;
             } else {
                 const pct = parseFloat(pctEl.value) || 0;
                 amt = round2(b * pct / 100);
-                if (document.activeElement !== amtEl) amtEl.value = amt;
+                if (document.activeElement !== amtEl) { amtEl.value = amt; amtEl.dataset.shown = amtEl.value; }
             }
             v[key] = amt;
         });
+        const hint = document.getElementById('tkm-pair-hint');
+        if (hint) hint.classList.toggle('d-none', !baseMissing);
 
         const total = round2(v.fare + v.tax + v.apt + v.psf - v.discount);
         const supplierNet = round2(v.fare + v.tax + v.apt - v.commission + v.wht);
@@ -375,6 +380,8 @@
         Object.entries(pairSource).forEach(([key, [pctF, amtF, modeF]]) => {
             pairEl(key, 'pct').value = parseFloat(line[pctF]) || 0;
             pairEl(key, 'amt').value = parseFloat(line[amtF]) || 0;
+            pairEl(key, 'pct').dataset.shown = pairEl(key, 'pct').value;
+            pairEl(key, 'amt').dataset.shown = pairEl(key, 'amt').value;
             pairEl(key, 'mode').value = line[modeF] === 'amount' ? 'amount' : 'percent';
         });
 
@@ -388,10 +395,23 @@
 
     // Typing in either side of a pair makes that side the "entered" one.
     PAIRS.forEach(({ key }) => {
-        pairEl(key, 'pct').addEventListener('input', () => { pairEl(key, 'mode').value = 'percent'; applyPairModes(); masterChanged(); });
-        pairEl(key, 'amt').addEventListener('input', () => { pairEl(key, 'mode').value = 'amount'; applyPairModes(); masterChanged(); });
-        // Recompute once focus leaves (the derived side was skipped while focused).
-        ['pct', 'amt'].forEach(part => pairEl(key, part).addEventListener('blur', recalcMaster));
+        // Whichever box the user types in becomes the "entered" side; the
+        // other one is calculated (both directions). Listen to input, keyup
+        // and change so every browser / keyboard / paste path is caught, but
+        // only react when the value really changed (tabbing in changes nothing).
+        ['pct', 'amt'].forEach(part => {
+            const el = pairEl(key, part);
+            el.dataset.shown = el.value;
+            const onEdit = () => {
+                if (el.value === el.dataset.shown) return;
+                el.dataset.shown = el.value;
+                pairEl(key, 'mode').value = part === 'pct' ? 'percent' : 'amount';
+                applyPairModes();
+                masterChanged();
+            };
+            ['input', 'keyup', 'change'].forEach(ev => el.addEventListener(ev, onEdit));
+            el.addEventListener('blur', recalcMaster);
+        });
     });
 
     ['tkm-fare', 'tkm-tax', 'tkm-pnr', 'tkm-leg1-from', 'tkm-leg1-to', 'tkm-leg2-from', 'tkm-leg2-to',
