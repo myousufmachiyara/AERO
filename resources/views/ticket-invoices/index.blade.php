@@ -1,13 +1,13 @@
 @extends('layouts.app')
 
-@section('title', 'Sale Invoice (Tickets)')
+@section('title', 'Ticket Invoice')
 
 @section('content')
 <div class="row">
     <div class="col">
         <section class="card">
             <header class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-                <h2 class="card-title">Sale Invoice (Tickets)</h2>
+                <h2 class="card-title">Ticket Invoice</h2>
                 @can('ticket_invoices.create')
                 <a href="{{ route('ticket_invoices.create') }}" class="btn btn-primary">
                     <i class="fas fa-plus"></i> New Sale Invoice

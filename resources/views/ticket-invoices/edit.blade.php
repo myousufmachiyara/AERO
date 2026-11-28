@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Edit Sale Invoice (Tickets)')
+@section('title', 'Edit Ticket Invoice')
 
 @section('content')
 <div class="row">
@@ -9,7 +9,7 @@
             @csrf @method('PUT')
             <section class="card">
                 <header class="card-header">
-                    <h2 class="card-title">Edit Sale Invoice — {{ $invoice->invoice_no }}</h2>
+                    <h2 class="card-title">Edit Ticket Invoice — {{ $invoice->invoice_no }}</h2>
                     @if ($errors->any())
                         <div class="alert alert-danger mt-2">
                             <ul class="mb-0">

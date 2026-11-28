@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'New Sale Invoice (Tickets)')
+@section('title', 'New Ticket Invoice')
 
 @section('content')
 <div class="row">
@@ -9,7 +9,7 @@
             @csrf
             <section class="card">
                 <header class="card-header">
-                    <h2 class="card-title">New Sale Invoice (Tickets)</h2>
+                    <h2 class="card-title">New Ticket Invoice</h2>
                     @if ($errors->any())
                         <div class="alert alert-danger mt-2">
                             <ul class="mb-0">
